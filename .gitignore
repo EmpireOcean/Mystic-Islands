@@ -2,6 +2,3 @@
 *.md
 *.txt
 *.bat
-
-# Editor/tooling config
-.claude/
