@@ -1,0 +1,197 @@
+/* ===== Mystic Islands — phong cách Ghibli pastel ===== */
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { width:100%; height:100%; overflow:hidden; font-family:"Segoe UI", "Nunito", sans-serif; }
+body { background: linear-gradient(180deg, #a8d8ea 0%, #cfe8e5 45%, #fbe3c0 80%, #f9d5a7 100%); }
+
+#app { position:fixed; inset:0; }
+#app canvas { display:block; }
+
+#ui { position:fixed; inset:0; pointer-events:none; }
+#ui .screen { pointer-events:auto; }
+.hidden { display:none !important; }
+
+/* ===== Màn hình / panel ===== */
+.screen {
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  background: rgba(60, 80, 90, 0.25); backdrop-filter: blur(3px);
+}
+#screen-menu { background: transparent; backdrop-filter:none; }
+
+/* bảng thua khi bị bạch tuộc: neo lên trên, nền trong để thấy nhân vật choáng váng */
+#screen-death.anchor-top { align-items:flex-start; padding-top:4vh; background:rgba(60,80,90,.12); backdrop-filter:none; }
+
+.menu-panel, .panel {
+  background: rgba(255, 250, 240, 0.92);
+  border-radius: 24px;
+  padding: 28px 36px;
+  box-shadow: 0 12px 40px rgba(80, 60, 30, 0.25);
+  text-align:center;
+  max-width: min(92vw, 480px);
+  max-height: 88vh; overflow-y:auto;
+}
+.panel-wide { max-width: min(94vw, 560px); }
+
+.game-title {
+  font-size: clamp(2rem, 6vw, 3.2rem);
+  color:#4a6741; letter-spacing:2px; margin-bottom:4px;
+  text-shadow: 0 2px 0 #fff, 0 4px 12px rgba(74,103,65,.3);
+}
+.game-sub { color:#8a9a7b; margin-bottom:22px; font-style:italic; }
+
+h2 { color:#4a6741; margin-bottom:14px; }
+.hint { color:#8a9a7b; font-size:.9rem; margin:8px 0; }
+
+/* ===== Nút ===== */
+.btn {
+  display:block; width:100%; margin:8px 0; padding:12px 20px;
+  font-size:1.05rem; font-weight:600; font-family:inherit;
+  color:#5a4a35; background: linear-gradient(180deg,#fdf3dd,#f4dfb8);
+  border: 2px solid #d9c295; border-radius: 16px; cursor:pointer;
+  transition: transform .12s, box-shadow .12s;
+  box-shadow: 0 4px 0 #d9c295;
+}
+.btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #d9c295; }
+.btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #d9c295; }
+.btn-big { background: linear-gradient(180deg,#cdeab5,#a8d68a); border-color:#84b56a; box-shadow:0 4px 0 #84b56a; color:#3c5a2e; font-size:1.2rem; }
+.btn-big:hover { box-shadow:0 6px 0 #84b56a; }
+.btn-big:active { box-shadow:0 1px 0 #84b56a; }
+.btn-dim { opacity:.8; font-size:.95rem; }
+.btn-back { width:auto; display:inline-block; }
+.row-center { display:flex; gap:12px; justify-content:center; margin-top:14px; flex-wrap:wrap; }
+.row-center .btn { width:auto; }
+
+/* ===== Tạo nhân vật ===== */
+#name-row { display:flex; gap:10px; align-items:center; justify-content:center; margin:10px 0; flex-wrap:wrap; }
+#name-row label { color:#5a4a35; font-weight:600; }
+input[type=text], #inp-name, #inp-rename {
+  padding:10px 14px; border-radius:12px; border:2px solid #d9c295;
+  font-size:1rem; font-family:inherit; background:#fffdf8; color:#5a4a35; outline:none;
+}
+#char-list { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:12px 0; }
+.char-card {
+  width:86px; padding:10px 6px 8px; border-radius:16px; cursor:pointer;
+  background:#fffdf8; border:3px solid #e5d5b5; transition: all .15s;
+}
+.char-card:hover { transform:translateY(-3px); }
+.char-card.sel { border-color:#84b56a; background:#eef7e4; box-shadow:0 0 0 3px rgba(132,181,106,.3); }
+.char-avatar { width:56px; height:72px; margin:0 auto 6px; position:relative; }
+.char-avatar div { position:absolute; border-radius:3px; }
+.char-name { font-size:.78rem; color:#5a4a35; font-weight:600; }
+
+/* ===== Bảng xếp hạng ===== */
+#score-list { margin:10px 0; }
+.score-row {
+  display:flex; align-items:center; gap:10px; padding:9px 14px; margin:6px 0;
+  background:#fffdf8; border-radius:14px; border:2px solid #eee0c5; text-align:left;
+}
+.score-row.me { background:#eef7e4; border-color:#84b56a; }
+.score-rank { font-size:1.2rem; font-weight:800; color:#c9a227; width:34px; }
+.score-name { flex:1; font-weight:700; color:#5a4a35; }
+.score-level { font-weight:700; color:#4a6741; }
+.score-sub { font-size:.78rem; color:#a09070; }
+
+/* ===== Shop ===== */
+#shop-balance { display:flex; gap:18px; justify-content:center; font-weight:800; color:#5a4a35; margin-bottom:10px; font-size:1.1rem; }
+.shop-item {
+  display:flex; align-items:center; gap:12px; padding:10px 14px; margin:8px 0;
+  background:#fffdf8; border-radius:14px; border:2px solid #eee0c5; text-align:left;
+}
+.shop-ico { font-size:1.8rem; width:44px; text-align:center; }
+.shop-info { flex:1; }
+.shop-info b { color:#5a4a35; }
+.shop-info small { display:block; color:#a09070; }
+.shop-item .btn { width:auto; margin:0; padding:8px 14px; font-size:.9rem; white-space:nowrap; }
+.btn.disabled { opacity:.45; pointer-events:none; }
+
+/* ===== Options ===== */
+.opt-row { display:flex; align-items:center; gap:14px; margin:14px 0; }
+.opt-row label { width:110px; text-align:right; color:#5a4a35; font-weight:600; }
+.opt-row input[type=range] { flex:1; accent-color:#84b56a; }
+
+/* ===== HUD ===== */
+#hud { position:absolute; inset:0; pointer-events:none; z-index:5; }
+#hud button { pointer-events:auto; }
+#hud-topleft { position:absolute; top:12px; left:12px; }
+.bar-wrap { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+.bar-label { font-size:1.1rem; filter:drop-shadow(0 1px 2px rgba(0,0,0,.3)); }
+.bar { width:150px; height:16px; background:rgba(0,0,0,.35); border-radius:9px; overflow:hidden; border:2px solid rgba(255,255,255,.5); }
+.bar-fill { height:100%; width:100%; background:linear-gradient(180deg,#ff8f8f,#e05252); border-radius:6px; transition:width .2s; }
+.bar-fill.orb { background:linear-gradient(180deg,#9fd8ff,#4aa3e0); }
+.bar-wrap span { color:#fff; font-weight:700; font-size:.8rem; text-shadow:0 1px 3px rgba(0,0,0,.5); }
+#hud-warning {
+  margin-top:6px; background:rgba(200,80,50,.85); color:#fff; padding:5px 10px;
+  border-radius:10px; font-size:.8rem; font-weight:700; max-width:230px;
+}
+#hud-topright { position:absolute; top:12px; right:12px; text-align:right; }
+#hud-topright .stat {
+  background:rgba(255,250,240,.85); border-radius:12px; padding:4px 12px; margin-bottom:5px;
+  font-weight:800; color:#5a4a35; box-shadow:0 2px 6px rgba(0,0,0,.15); font-size:.95rem;
+}
+#hud-weapon { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); display:flex; gap:8px; }
+.btn-mini {
+  padding:9px 16px; border-radius:14px; border:2px solid #d9c295; font-family:inherit;
+  background:rgba(255,250,240,.9); color:#5a4a35; font-weight:700; cursor:pointer; font-size:.95rem;
+}
+#crosshair {
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  color:#fff; font-size:1.4rem; text-shadow:0 1px 4px rgba(0,0,0,.6);
+}
+
+/* ===== Mobile controls ===== */
+#joystick { position:absolute; bottom:26px; left:26px; pointer-events:auto; }
+#joy-base {
+  width:110px; height:110px; border-radius:50%; background:rgba(255,255,255,.22);
+  border:2px solid rgba(255,255,255,.45); position:relative;
+}
+#joy-stick {
+  width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,.6);
+  position:absolute; left:31px; top:31px;
+}
+#mobile-btns { position:absolute; bottom:30px; right:24px; display:flex; gap:14px; pointer-events:auto; }
+#mobile-btns button {
+  width:64px; height:64px; border-radius:50%; border:2px solid rgba(255,255,255,.5);
+  background:rgba(255,250,240,.55); font-size:1.5rem; color:#5a4a35;
+}
+
+/* ===== Reward ===== */
+.reward-panel { background:rgba(255,252,238,.96); }
+#reward-icons { display:flex; gap:16px; justify-content:center; margin:18px 0; }
+.reward-item {
+  width:100px; padding:14px 6px; background:#fffdf8; border-radius:16px; border:2px solid #f0d99a;
+  box-shadow:0 4px 14px rgba(200,160,60,.25); animation:pop .4s ease;
+}
+.reward-ico { font-size:2.2rem; }
+.reward-txt { font-weight:800; color:#5a4a35; margin-top:6px; }
+.reward-sub { font-size:.65rem; font-weight:800; letter-spacing:1px; color:#c9a227; }
+#reward-extra { margin:8px 0; color:#4a6741; font-weight:700; }
+@keyframes pop { 0%{transform:scale(.3);opacity:0} 70%{transform:scale(1.1)} 100%{transform:scale(1);opacity:1} }
+
+/* ===== Bag ===== */
+#bag-flex { display:flex; gap:14px; align-items:flex-start; }
+#bag-preview-wrap { flex-shrink:0; }
+#bag-preview {
+  width:150px; height:190px; border-radius:14px; overflow:hidden;
+  background: linear-gradient(180deg,#cfe8f0,#e8f0d8); border:2px solid #d9c295;
+}
+#bag-preview canvas { display:block; }
+#bag-list { text-align:left; flex:1; min-width:0; }
+.bag-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; margin:5px 0; background:#fffdf8; border-radius:12px; border:2px solid #eee0c5; color:#5a4a35; font-weight:600; }
+.bag-row.equipped { background:#eef7e4; border-color:#84b56a; }
+.bag-info { flex:1; min-width:0; }
+.bag-info small { display:block; color:#a09070; font-weight:500; font-size:.78rem; }
+.bag-row .btn { width:auto; margin:0; padding:7px 12px; font-size:.85rem; white-space:nowrap; }
+.bag-sep { margin:10px 0 4px; color:#8a9a7b; font-size:.85rem; font-weight:700; text-align:left; }
+@media (max-width:600px) {
+  #bag-flex { flex-direction:column; align-items:center; }
+}
+
+@media (max-width:600px) {
+  .menu-panel, .panel { padding:20px 18px; border-radius:18px; }
+  .bar { width:110px; }
+  #hud-topright .stat { font-size:.8rem; padding:3px 9px; }
+  #reward-icons { gap:8px; }
+  .reward-item { width:84px; }
+  /* nút HUD to hơn, dễ bấm trên điện thoại */
+  .btn-mini { padding:13px 20px; font-size:1.05rem; border-radius:16px; }
+  #hud-weapon { bottom:110px; gap:12px; }
+}

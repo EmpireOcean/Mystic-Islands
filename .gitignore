@@ -1,0 +1,7 @@
+# Dev notes / design & feedback docs used while building the game — not part of the shipped game
+*.md
+*.txt
+*.bat
+
+# Editor/tooling config
+.claude/

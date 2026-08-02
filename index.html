@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mystic Islands</title>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="ui">
+
+  <!-- ===== MÀN HÌNH CHÍNH ===== -->
+  <div class="screen" id="screen-menu">
+    <div class="menu-panel">
+      <h1 class="game-title">Mystic Islands</h1>
+      <p class="game-sub">A journey across floating islands</p>
+      <button class="btn btn-big" id="btn-start">▶ Start</button>
+      <button class="btn" id="btn-scores">🏆 Scores</button>
+      <button class="btn" id="btn-shop">🛒 Shop</button>
+      <button class="btn" id="btn-options">⚙ Option</button>
+      <button class="btn btn-dim" id="btn-end">✕ End game</button>
+    </div>
+  </div>
+
+  <!-- ===== TẠO NHÂN VẬT ===== -->
+  <div class="screen hidden" id="screen-char">
+    <div class="panel">
+      <h2>Create Character</h2>
+      <div id="name-row">
+        <label for="inp-name">Character name:</label>
+        <input id="inp-name" maxlength="16" placeholder="Enter your name...">
+      </div>
+      <p class="hint">Choose your character:</p>
+      <div id="char-list"></div>
+      <div class="row-center">
+        <button class="btn btn-back" id="btn-char-back">← Back</button>
+        <button class="btn btn-big" id="btn-char-go">▶ Start</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== BẢNG XẾP HẠNG ===== -->
+  <div class="screen hidden" id="screen-scores">
+    <div class="panel">
+      <h2>🏆 Leaderboard</h2>
+      <p class="hint">Ranked by highest level ever reached</p>
+      <div id="score-list"></div>
+      <div class="row-center"><button class="btn btn-back" id="btn-scores-back">← Back</button></div>
+    </div>
+  </div>
+
+  <!-- ===== SHOP ===== -->
+  <div class="screen hidden" id="screen-shop">
+    <div class="panel panel-wide">
+      <h2>🛒 Shop</h2>
+      <div id="shop-balance"></div>
+      <div id="shop-list"></div>
+      <div class="row-center"><button class="btn btn-back" id="btn-shop-back">← Back</button></div>
+    </div>
+  </div>
+
+  <!-- ===== OPTIONS ===== -->
+  <div class="screen hidden" id="screen-options">
+    <div class="panel">
+      <h2>⚙ Options</h2>
+      <div class="opt-row"><label>🎵 Music</label><input type="range" id="vol-music" min="0" max="100"></div>
+      <div class="opt-row"><label>🔊 Sound Effects</label><input type="range" id="vol-sfx" min="0" max="100"></div>
+      <div class="opt-row"><label>✏ Rename</label><input id="inp-rename" maxlength="16"></div>
+      <div class="row-center"><button class="btn btn-back" id="btn-options-back">← Back</button></div>
+    </div>
+  </div>
+
+  <!-- ===== HUD TRONG GAME ===== -->
+  <div class="hidden" id="hud">
+    <div id="hud-topleft">
+      <div class="bar-wrap"><div class="bar-label">❤</div><div class="bar"><div class="bar-fill" id="hp-fill"></div></div><span id="hp-text"></span></div>
+      <div class="bar-wrap hidden" id="orb-row"><div class="bar-label">🛡</div><div class="bar"><div class="bar-fill orb" id="orb-fill"></div></div><span id="orb-text"></span></div>
+      <div id="hud-warning" class="hidden"></div>
+    </div>
+    <div id="hud-topright">
+      <div class="stat">🪙 <span id="hud-gold">0</span></div>
+      <div class="stat">💎 <span id="hud-diamond">0</span></div>
+      <div class="stat">⛰ Level <span id="hud-level">1</span></div>
+      <div class="stat">💚 <span id="hud-lives">1</span> lives</div>
+    </div>
+    <div id="hud-weapon"><button class="btn-mini" id="btn-weapon">✊ Bare Hands</button>
+      <button class="btn-mini" id="btn-bag">🎒 Bag</button>
+      <button class="btn-mini" id="btn-pause">⏸ Pause</button></div>
+    <div id="crosshair" class="hidden">+</div>
+
+    <!-- mobile -->
+    <div id="joystick" class="hidden"><div id="joy-base"><div id="joy-stick"></div></div></div>
+    <div id="mobile-btns" class="hidden">
+      <button id="btn-m-jump">⤒</button>
+      <button id="btn-m-aim">🎯</button>
+      <button id="btn-m-attack">⚔</button>
+    </div>
+  </div>
+
+  <!-- ===== TÚI ĐỒ ===== -->
+  <div class="screen hidden" id="screen-bag">
+    <div class="panel panel-wide">
+      <h2>🎒 Inventory</h2>
+      <div id="bag-flex">
+        <div id="bag-preview-wrap">
+          <div id="bag-preview"></div>
+          <div class="hint">Equipment preview</div>
+        </div>
+        <div id="bag-list"></div>
+      </div>
+      <div class="row-center"><button class="btn btn-back" id="btn-bag-close">Close</button></div>
+    </div>
+  </div>
+
+  <!-- ===== TẠM DỪNG ===== -->
+  <div class="screen hidden" id="screen-pause">
+    <div class="panel">
+      <h2>⏸ Paused</h2>
+      <button class="btn btn-big" id="btn-pause-continue">▶ Continue</button>
+      <button class="btn" id="btn-pause-option">⚙ Option</button>
+      <button class="btn btn-dim" id="btn-pause-quit">🏠 Quit — return to main menu</button>
+      <p class="hint">Press Esc or P to open/close this menu</p>
+    </div>
+  </div>
+
+  <!-- ===== PHẦN THƯỞNG ĐẢO ĐÍCH ===== -->
+  <div class="screen hidden" id="screen-reward">
+    <div class="panel reward-panel">
+      <h2>✨ Level Complete!</h2>
+      <div id="reward-icons">
+        <div class="reward-item"><div class="reward-ico">🪙</div><div class="reward-txt" id="reward-gold">+1 Gold</div></div>
+        <div class="reward-item"><div class="reward-ico">💎</div><div class="reward-txt">+1 Diamond</div></div>
+        <div class="reward-item"><div class="reward-ico">🍀</div><div class="reward-txt">+1 Luck</div><div class="reward-sub">REAL LIFE</div></div>
+      </div>
+      <div id="reward-extra" class="hidden"></div>
+      <div class="row-center"><button class="btn btn-big" id="btn-reward-ok">Claim Reward ▶</button></div>
+    </div>
+  </div>
+
+  <!-- ===== THUA ===== -->
+  <div class="screen hidden" id="screen-death">
+    <div class="panel">
+      <h2 id="death-title">💀 You Fell</h2>
+      <p id="death-msg"></p>
+      <div class="row-center"><button class="btn btn-big" id="btn-death-ok">Try Again ▶</button></div>
+    </div>
+  </div>
+
+  <!-- ===== HẾT MẠNG ===== -->
+  <div class="screen hidden" id="screen-over">
+    <div class="panel">
+      <h2>☠ Out of Lives!</h2>
+      <p>Your level progress has been reset to <b>Level 1</b>.<br>Your gold, diamonds, and equipment are kept.</p>
+      <div class="row-center"><button class="btn btn-big" id="btn-over-ok">Return to Main Menu</button></div>
+    </div>
+  </div>
+
+  <!-- ===== TẠM BIỆT ===== -->
+  <div class="screen hidden" id="screen-bye">
+    <div class="panel"><h2>👋 See you next time!</h2><p>You can close this browser tab now.</p></div>
+  </div>
+
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
