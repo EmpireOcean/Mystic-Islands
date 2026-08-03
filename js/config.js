@@ -7,12 +7,12 @@ export const CFG = {
     speed: 4.6,
     jumpV: 8.5,
     gravity: 20,
-    regenSec: 1,      // hồi máu tự động: mỗi 1 giây...
+    regenSec: 2,      // hồi máu tự động: mỗi 2 giây...
     regenAmount: 1,   // ...hồi 1 máu (nếu chưa đầy)
   },
 
   shop: {
-    armor: { price: 50, dur: 50, reduce: 1 },        // giảm 1 sát thương, -1 độ bền mỗi lần đỡ
+    armor: { price: 50, dur: 50, reduce: 1, maxDur: 100 }, // giảm 1 sát thương, -1 độ bền mỗi lần đỡ; mua thêm khi đã có thì CỘNG DỒN +dur độ bền, tối đa maxDur
     sword: { price: 10, dmg: 2, dur: 20, durHit: 2 },// -2 độ bền mỗi lần chém trúng
     gun:   { price: 80, dmg: 3 },                    // giá tự đặt: 80 vàng
     ammo:  { price: 2 },
@@ -26,13 +26,20 @@ export const CFG = {
     incEarly: 2,      // tăng thêm mỗi level (2–49) — tự đặt: 2
     phaseLevel: 50,   // mốc chuyển giai đoạn
     incLate: 1,       // tăng thêm mỗi level từ mốc trở đi
+    distMin: 2.6,        // khoảng cách gần nhất giữa 2 vật thể (mọi level)
+    distMax: 3.4,         // khoảng cách xa nhất giữa 2 vật thể — trước mốc distFarLevel
+    distFarLevel: 30,     // từ level này, khoảng cách xa nhất được nới rộng thêm (random, không phải lúc nào cũng vậy)
+    distMaxFar: 3.7,       // khoảng cách xa nhất mới — vừa đủ tầm nhảy tối đa của nhân vật, không dư nhiều
   },
 
   monsters: {
-    startLevel: 20,
-    firstAt: 10,      // random đảo quái sau vật thể thứ 10
-    every: 10,        // mỗi 10 vật thể
-    chance: 0.65,
+    startLevel: 10,     // từ level này quái CÓ THỂ ngẫu nhiên xuất hiện (chưa chắc chắn, còn tùy chance)
+    denseLevel: 20,     // từ level này xuất hiện thường xuyên hơn hẳn
+    firstAt: 10,         // sớm nhất là sau vật thể thứ 10 trong chuỗi
+    everySparse: 15,     // khoảng cách vật thể giữa 2 lượt random đảo quái — giai đoạn thưa (10–19)
+    everyDense: 6,        // khoảng cách vật thể giữa 2 lượt random đảo quái — giai đoạn dày (20 trở đi)
+    chanceSparse: 0.4,   // xác suất thực sự xuất hiện mỗi lượt random — giai đoạn thưa
+    chanceDense: 0.7,     // xác suất thực sự xuất hiện mỗi lượt random — giai đoạn dày
     meleeTypes: 5,
     rangedTypes: 2,
     meleeHp: 50, meleeDmg: 1,

@@ -12,6 +12,7 @@ const DEFAULTS = () => ({
   maxLevel: 1,       // level cao nhất từng đạt — cơ sở xếp hạng
   lives: CFG.lives.start,
   armorDur: 0,
+  armorWorn: true,   // có thể tháo ra/mặc lại từ túi đồ mà không mất trang bị
   swordDur: 0,
   hasGun: false,
   ammo: 0,

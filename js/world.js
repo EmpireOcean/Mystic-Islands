@@ -121,13 +121,14 @@ function buildTerrain(w) {
       if (Math.hypot(rx, rz) > R + 2) break;
       const tx = Math.round(rx), tz = Math.round(rz);
       const k = tileKey(tx, tz);
-      if (w.tiles.has(k) && !w.water.has(k)) {
+      // né núi đá — sông không được cắt xuyên/hiện lên trên núi
+      if (w.tiles.has(k) && !w.water.has(k) && !w.rockTiles?.has(k)) {
         const h = Math.max(1, w.tiles.get(k) - 1);
         w.tiles.set(k, h);
         w.water.set(k, h + 0.55);
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const nk = tileKey(tx + dx, tz + dz);
-          if (w.tiles.has(nk) && !w.water.has(nk) && w.tiles.get(nk) > h + 1) {
+          if (w.tiles.has(nk) && !w.water.has(nk) && !w.rockTiles?.has(nk) && w.tiles.get(nk) > h + 1) {
             w.tiles.set(nk, h + 1);
           }
         }
@@ -142,11 +143,33 @@ function buildTerrain(w) {
     const lr = rand(2, 3.8);
     for (const [k, h] of w.tiles) {
       const [x, z] = k.split(',').map(Number);
-      if (Math.hypot(x - lx, z - lz) <= lr && h >= 2 && !w.water.has(k)) {
+      // né núi đá — hồ không được hiện lên trên núi
+      if (Math.hypot(x - lx, z - lz) <= lr && h >= 2 && !w.water.has(k) && !w.rockTiles?.has(k)) {
         w.tiles.set(k, h - 1);
         w.water.set(k, h - 0.45);
       }
     }
+  }
+
+  // ---- San phẳng mặt nước: sông/hồ ghép từ nhiều ô carve riêng lẻ nên độ cao lệch nhau theo địa hình gốc,
+  // tạo mặt nước lởm chởm như bậc thang — lặp nhiều lượt hạ mỗi ô nước xuống bằng ô THẤP NHẤT trong các ô liền
+  // kề (đất lẫn nước) để mặt nước không bao giờ trồi cao hơn 2 bên, cứ lặp tới khi ổn định (mực nước liền lạc)
+  for (let pass = 0; pass < 40; pass++) {
+    let changed = false;
+    for (const [k, wy] of w.water) {
+      const [x, z] = k.split(',').map(Number);
+      let minNeighbor = Infinity;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nk = tileKey(x + dx, z + dz);
+        if (w.water.has(nk)) minNeighbor = Math.min(minNeighbor, w.water.get(nk));
+        else if (w.tiles.has(nk)) minNeighbor = Math.min(minNeighbor, w.tiles.get(nk));
+      }
+      if (minNeighbor < Infinity && minNeighbor < wy - 0.01) {
+        w.water.set(k, minNeighbor);
+        changed = true;
+      }
+    }
+    if (!changed) break;
   }
 
   // ---- Đường mòn nhỏ uốn lượn cắt ngang đảo — chỉ đổi màu mặt đất (đất nâu giữa cỏ), không đổi độ cao ----
@@ -292,7 +315,11 @@ function buildChain(w, level) {
   let cz = pz + Math.sin(baseAngle) * 4.6;
   let cy = py + 0.7;
 
+  // 10–19: quái có thể ngẫu nhiên xuất hiện nhưng thưa + xác suất thấp; từ 20: dày hơn + xác suất cao hơn hẳn
   const hasMonsters = level >= CFG.monsters.startLevel;
+  const monstersDense = level >= CFG.monsters.denseLevel;
+  const monsterEvery = monstersDense ? CFG.monsters.everyDense : CFG.monsters.everySparse;
+  const monsterChance = monstersDense ? CFG.monsters.chanceDense : CFG.monsters.chanceSparse;
 
   let prevCy = py;
   for (let i = 0; i < count; i++) {
@@ -309,8 +336,9 @@ function buildChain(w, level) {
 
     const tier = Math.max(1, Math.round(cy - py));
     w.chainPath.push({ x: cx, z: cz });
-    const isMonsterNode = hasMonsters && i >= CFG.monsters.firstAt &&
-      (i - CFG.monsters.firstAt) % CFG.monsters.every === 0 && chance(CFG.monsters.chance);
+    // i < count - 1: không cho đảo quái rơi đúng vào vật thể cuối cùng — vị trí ngay trước khi bước lên đảo đích
+    const isMonsterNode = hasMonsters && i >= CFG.monsters.firstAt && i < count - 1 &&
+      (i - CFG.monsters.firstAt) % monsterEvery === 0 && chance(monsterChance);
 
     if (isMonsterNode) {
       // đảo quái to: đặt tâm lùi sâu để mép đảo cách vật thể trước ~2 đơn vị
@@ -359,13 +387,15 @@ function buildChain(w, level) {
       }
     }
 
-    heading += rand(-0.65, 0.65);
-    let diff = heading - baseAngle;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    if (Math.abs(diff) > 1.1) heading = baseAngle + Math.sign(diff) * 1.1;
+    // hướng vật thể kế tiếp: xoay tự do quanh cả 360° (trước/sau/ngang đều được) thay vì bó hẹp trong một
+    // hình nón hướng về đích — khoảng cách/độ cao nhảy (dist/dy bên dưới) không đổi theo hướng nên đường nhảy
+    // giữa 2 vật thể liền kề luôn giữ nguyên tầm nhảy được, bất kể xoay hướng nào
+    heading += rand(-1.3, 1.3);
 
-    const dist = rand(2.6, 3.4);
+    // từ level distFarLevel trở đi: khoảng cách xa nhất có thể được nới rộng gần tới giới hạn nhảy tối đa —
+    // không phải lúc nào cũng vậy, chỉ là biên trên rand() được đẩy lên nên NGẪU NHIÊN thỉnh thoảng mới chạm mức đó
+    const distMax = level >= CFG.chain.distFarLevel ? CFG.chain.distMaxFar : CFG.chain.distMax;
+    const dist = rand(CFG.chain.distMin, distMax);
     const dy = rand(0.55, 1.15);
     cx += Math.cos(heading) * dist;
     cz += Math.sin(heading) * dist;
@@ -489,16 +519,29 @@ function buildIslandDecor(w) {
     if (isRockDeco) w.colliders.push({ x: wx, z: wz, r: d.userData.hitR, y: h, h: d.userData.hitH });
   }
 
-  // ---- Thỏ trang trí: 2–3 con nhảy loanh quanh ----
+  // ---- Vật nuôi trang trí: 2–3 con (thỏ/chó/mèo/gà random) đi/nhảy loanh quanh ----
   w.animals = [];
+  // thỏ giữ kiểu nhảy cong đặc trưng (hopH/hopSec); chó/mèo/gà đi bộ thật — chân dính đất, không có cung nhảy,
+  // di chuyển từng bước nhỏ liên tục theo walkSpeed/runSpeed thay vì "dịch chuyển" thẳng từ điểm này sang điểm khác
+  const animalKinds = [
+    { type: 'rabbit', build: V.buildRabbit, hopH: 0.45, hopSec: 0.55 },
+    { type: 'dog', build: V.buildDog, walkSpeed: 1.1 },
+    { type: 'cat', build: V.buildCat, walkSpeed: 1.0 },
+    { type: 'chicken', build: V.buildChicken, walkSpeed: 0.65, runSpeed: 2.6 },
+  ];
   for (let i = 0; i < randInt(2, 3); i++) {
     const [k, h] = pick(openTiles);
     const [x, z] = tileAt(k);
-    const rb = V.buildRabbit();
+    const kind = pick(animalKinds);
+    const rb = kind.build();
     rb.position.set(x, h, z);
     rb.rotation.y = rand(0, Math.PI * 2);
     w.group.add(rb);
-    w.animals.push({ mesh: rb, state: 'idle', timer: rand(0.5, 2), from: null, to: null, hopT: 0 });
+    w.animals.push({
+      mesh: rb, type: kind.type, state: 'idle', timer: rand(0.5, 2), from: null, to: null,
+      hopT: 0, hopH: kind.hopH, hopSec: kind.hopSec, walkSpeed: kind.walkSpeed, runSpeed: kind.runSpeed,
+      dir: 0, walkT: 0, peckT: 0, sitting: false, justSat: false, running: false,
+    });
   }
 }
 
@@ -685,4 +728,14 @@ function buildDecor(w) {
     w.group.add(c);
     w.clouds.push(c);
   }
+
+  // ---- Cá voi ngoài khơi: thỉnh thoảng trồi lên phun nước rồi lặn xuống, không thường xuyên ----
+  const whale = V.buildWhale();
+  const spout = V.buildSpout();
+  spout.position.set(0, 0.6, 1.4); // ngay trên lỗ thở
+  whale.add(spout);
+  whale.position.set(rand(24, 60), w.seaY - 3, 0);
+  whale.visible = false;
+  w.group.add(whale);
+  w.whale = { mesh: whale, spout, state: 'hidden', t: 0, timer: rand(10, 22), baseY: w.seaY };
 }

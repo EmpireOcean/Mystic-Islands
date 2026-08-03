@@ -229,6 +229,14 @@ export class Game {
     this.char.rotation.set(0, 0, 0);
     this.beamT = 0;
     this.events.updateHUD();
+    this.startSpawnEffect();
+  }
+
+  startSpawnEffect() {
+    for (const r of this.spawnEffect?.rings || []) this.scene.remove(r);
+    const p = this.world.portal;
+    this.spawnEffect = { t: 0, ringTimer: 0, rings: [], cx: p.x, cz: p.z, baseY: p.y };
+    this.char.traverse((o) => { if (o.material) { o.material.transparent = true; o.material.opacity = 0; } });
   }
 
   stopToMenu() {
@@ -278,6 +286,15 @@ export class Game {
     if (!this.swordMesh) return;
     this.swordMesh.visible = this.weapon === 'sword';
     this.gunMesh.visible = this.weapon === 'gun';
+  }
+
+  // ---------- Giáp: mặc vào / tháo ra (không mất trang bị, chỉ ẩn/hiện + tắt/bật giảm sát thương) ----------
+  toggleArmor() {
+    if (this.save.armorDur <= 0) { this.events.toast('No armor yet — buy one in the Shop!'); return; }
+    this.save.armorWorn = !this.save.armorWorn;
+    this.audio.sfx('click');
+    this.events.persist();
+    this.events.updateHUD();
   }
 
   // ---------- Nhảy / tấn công ----------
@@ -524,7 +541,7 @@ export class Game {
   damagePlayer(n, src) {
     const pl = this.player, s = this.save;
     if (pl.invuln > 0 || this.state !== 'play') return;
-    if (s.armorDur > 0 && n > 0) {
+    if (s.armorDur > 0 && s.armorWorn && n > 0) {
       n = Math.max(0, n - CFG.shop.armor.reduce);
       s.armorDur--;
       if (s.armorDur === 0) this.events.toast('🛡 Your armor broke!');
@@ -1183,8 +1200,49 @@ export class Game {
     this.audio.sfx('shoot');
   }
 
+  // hiệu ứng xuất hiện ở cổng khởi đầu: vòng sáng dâng lên từ mặt cổng + nhân vật mờ dần rõ lên —
+  // khi đã rõ hẳn thì dừng, không còn vòng sáng dâng lên nữa (đối xứng ngược với hiệu ứng bay lên ở đảo đích)
+  updateSpawnEffect(dt) {
+    const se = this.spawnEffect;
+    if (!se) return;
+    se.t += dt;
+    const k = Math.min(1, se.t / 1.3);
+    if (this.char) this.char.traverse((o) => { if (o.material) o.material.opacity = k; });
+    se.ringTimer -= dt;
+    if (k < 0.85 && se.ringTimer <= 0) {
+      se.ringTimer = 0.16;
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.7, 0.055, 8, 26),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(se.cx, se.baseY + 0.1, se.cz);
+      ring.userData.idx = se.rings.length;
+      this.scene.add(ring);
+      se.rings.push(ring);
+    }
+    const nR = Math.max(1, se.rings.length);
+    const pulsePos = (se.t * (1.2 + se.t * 2.2)) % nR;
+    for (const r of se.rings) {
+      r.position.y += dt * 1.6;
+      r.scale.multiplyScalar(1 + dt * 0.35);
+      const hRel = r.position.y - se.baseY;
+      const heightFade = Math.max(0, 1 - hRel / 4.5);
+      let dIdx = Math.abs(r.userData.idx - pulsePos);
+      dIdx = Math.min(dIdx, nR - dIdx);
+      const pulse = Math.exp(-dIdx * dIdx * 2.5);
+      r.material.opacity = (0.14 + 0.55 * pulse) * heightFade;
+    }
+    if (k >= 1) {
+      for (const r of se.rings) this.scene.remove(r);
+      if (this.char) this.char.traverse((o) => { if (o.material) o.material.opacity = 1; });
+      this.spawnEffect = null;
+    }
+  }
+
   // ---------- Hoạt ảnh nhân vật & thế giới ----------
   updateVisuals(dt, t) {
+    this.updateSpawnEffect(dt);
     const pl = this.player;
     // hoạt cảnh xúc tu/thua/bay lên tự điều khiển tư thế — không ghi đè ở đây
     const posing = this.state === 'tentacle' || this.state === 'dead' || this.state === 'beam';
@@ -1215,8 +1273,11 @@ export class Game {
       u.legR.rotation.x = -swing;
       u.armL.rotation.x = -swing * 0.7;
       u.foreL.rotation.x = moving ? -0.3 : -0.12; // khuỷu tay trái hơi gập tự nhiên
-      // giáp hiện trên người khi đang sở hữu
-      u.armorGroup.visible = this.save.armorDur > 0;
+      // giáp hiện trên người khi đang sở hữu — ẩn mũ/tóc/tai/khăn riêng của nhân vật lúc này vì chúng
+      // chiếm cùng chỗ với mũ giáp/cổ giáp, mặc cùng lúc sẽ chồng mesh gây nhấp nháy (z-fighting)
+      const wearingArmor = this.save.armorDur > 0 && this.save.armorWorn;
+      u.armorGroup.visible = wearingArmor;
+      for (const o of u.hideWithArmor || []) o.visible = !wearingArmor;
       // animation tay phải: vai + khuỷu phối hợp theo từng loại vũ khí
       const prog = pl.attackAnim > 0 ? 1 - pl.attackAnim / (pl.attackDur || 0.28) : -1; // 0→1 trong lúc ra đòn
       u.armR.rotation.y = 0; // reset — chỉ nhánh súng-đang-ngắm bên dưới mới ghi đè
@@ -1293,32 +1354,155 @@ export class Game {
       }
     }
 
-    // thỏ nhảy loanh quanh trên đảo
+    // vật nuôi (thỏ/chó/mèo/gà) di chuyển loanh quanh trên đảo — mỗi loại một kiểu hành vi riêng.
+    // dùng chung 1 hàm kiểm tra hợp lệ: không lệch quá 1 tầng cao, không phải nước, không đâm vào vật cản rắn
+    // (cột, đá...) — áp dụng cho MỌI loại kể cả thỏ, để không con nào xuyên tầng/xuyên vật thể được nữa
+    const animalBlocked = (x, z, curH) => {
+      const key = `${Math.round(x)},${Math.round(z)}`;
+      const h = this.world.tiles.get(key);
+      if (h === undefined || this.world.water.has(key)) return true;
+      if (curH !== undefined && Math.abs(h - curH) > 1) return true;
+      for (const c of this.world.colliders || []) {
+        if (Math.hypot(x - c.x, z - c.z) < c.r + 0.18) return true;
+      }
+      return false;
+    };
     for (const a of this.world?.animals || []) {
       a.timer -= dt;
+      const isWalker = a.type !== 'rabbit'; // chó/mèo/gà: đi bộ thật; thỏ: giữ kiểu nhảy cong đặc trưng
       if (a.state === 'idle') {
-        if (a.timer <= 0) {
-          const ang = Math.random() * Math.PI * 2, d = 1 + Math.random() * 2.2;
-          const tx = a.mesh.position.x + Math.sin(ang) * d;
-          const tz = a.mesh.position.z + Math.cos(ang) * d;
-          const key = `${Math.round(tx)},${Math.round(tz)}`;
-          const h = this.world.tiles.get(key);
-          if (h !== undefined && !this.world.water.has(key)) {
-            a.from = a.mesh.position.clone();
-            a.to = { x: tx, y: h, z: tz };
-            a.state = 'hop'; a.hopT = 0;
-            a.mesh.rotation.y = Math.atan2(tx - a.from.x, tz - a.from.z);
-          } else a.timer = 0.4;
+        // gà đứng mổ mổ khi đang đứng yên
+        if (a.type === 'chicken' && a.mesh.userData.head) {
+          a.peckT = (a.peckT || 0) + dt;
+          const cyc = a.peckT % 2.2;
+          a.mesh.userData.head.rotation.x = cyc < 0.3 ? Math.sin((cyc / 0.3) * Math.PI) * 0.9 : 0;
         }
-      } else {
-        a.hopT += dt / 0.55;
+        if (a.timer <= 0) {
+          // chó/mèo thỉnh thoảng ngồi nghỉ một lúc lâu thay vì di chuyển ngay (không ngồi 2 lần liên tiếp)
+          if ((a.type === 'dog' || a.type === 'cat') && !a.justSat && Math.random() < 0.3) {
+            a.justSat = true; a.sitting = true;
+            a.mesh.position.y -= 0.05; // hạ thấp người xuống một chút ra dáng ngồi
+            a.timer = rand(3, 6);
+            continue;
+          }
+          if (a.sitting) { a.mesh.position.y += 0.05; a.sitting = false; }
+          a.justSat = false;
+
+          const curKey = `${Math.round(a.mesh.position.x)},${Math.round(a.mesh.position.z)}`;
+          const curH = this.world.tiles.get(curKey);
+
+          if (isWalker) {
+            // gà thỉnh thoảng chạy nhanh một đoạn dài hơn bình thường
+            a.running = a.type === 'chicken' && Math.random() < 0.22;
+            let found = false;
+            for (let tries = 0; tries < 8 && !found; tries++) {
+              const dir = Math.random() * Math.PI * 2;
+              const px = a.mesh.position.x + Math.sin(dir) * 1.2, pz = a.mesh.position.z + Math.cos(dir) * 1.2;
+              if (!animalBlocked(px, pz, curH)) { a.dir = dir; found = true; }
+            }
+            if (found) {
+              a.state = 'walk';
+              a.walkT = a.running ? rand(0.8, 1.6) : rand(1.5, 4);
+              a.mesh.rotation.y = a.dir;
+            } else a.timer = 0.4;
+          } else {
+            // thỏ: nhảy cong tới điểm ngẫu nhiên, kiểm tra cả điểm giữa lẫn điểm đến cho hợp lệ
+            const ang = Math.random() * Math.PI * 2, d = 1 + Math.random() * 2.2;
+            const tx = a.mesh.position.x + Math.sin(ang) * d, tz = a.mesh.position.z + Math.cos(ang) * d;
+            const mx = a.mesh.position.x + Math.sin(ang) * d * 0.5, mz = a.mesh.position.z + Math.cos(ang) * d * 0.5;
+            if (!animalBlocked(tx, tz, curH) && !animalBlocked(mx, mz, curH)) {
+              const key = `${Math.round(tx)},${Math.round(tz)}`;
+              a.from = a.mesh.position.clone();
+              a.to = { x: tx, y: this.world.tiles.get(key), z: tz };
+              a.state = 'hop'; a.hopT = 0;
+              a.mesh.rotation.y = Math.atan2(tx - a.from.x, tz - a.from.z);
+            } else a.timer = 0.4;
+          }
+        }
+      } else if (a.state === 'walk') {
+        // đi bộ thật: từng bước nhỏ liên tục theo tốc độ, chân luôn dính mặt đất — không cung nhảy
+        const curKey = `${Math.round(a.mesh.position.x)},${Math.round(a.mesh.position.z)}`;
+        const curH = this.world.tiles.get(curKey);
+        const spd = a.running ? (a.runSpeed ?? 2.5) : (a.walkSpeed ?? 1.0);
+        const nx = a.mesh.position.x + Math.sin(a.dir) * spd * dt;
+        const nz = a.mesh.position.z + Math.cos(a.dir) * spd * dt;
+        a.walkT -= dt;
+        if (a.walkT <= 0 || animalBlocked(nx, nz, curH)) {
+          a.state = 'idle'; a.timer = 0.8 + Math.random() * 2.5; a.running = false;
+        } else {
+          const key = `${Math.round(nx)},${Math.round(nz)}`;
+          a.mesh.position.x = nx; a.mesh.position.z = nz;
+          a.mesh.position.y = this.world.tiles.get(key);
+        }
+      } else { // 'hop' — chỉ thỏ dùng, cung nhảy cong đặc trưng
+        a.hopT += dt / (a.hopSec ?? 0.55);
         if (a.hopT >= 1) {
           a.mesh.position.set(a.to.x, a.to.y, a.to.z);
           a.state = 'idle'; a.timer = 0.8 + Math.random() * 2.5;
         } else {
           a.mesh.position.x = a.from.x + (a.to.x - a.from.x) * a.hopT;
           a.mesh.position.z = a.from.z + (a.to.z - a.from.z) * a.hopT;
-          a.mesh.position.y = a.from.y + (a.to.y - a.from.y) * a.hopT + Math.sin(a.hopT * Math.PI) * 0.45;
+          a.mesh.position.y = a.from.y + (a.to.y - a.from.y) * a.hopT + Math.sin(a.hopT * Math.PI) * (a.hopH ?? 0.45);
+        }
+      }
+    }
+
+    // cá voi ngoài khơi: thỉnh thoảng trồi lên phun nước rồi lặn xuống, đổi chỗ ngẫu nhiên mỗi lần
+    const wh = this.world?.whale;
+    if (wh) {
+      wh.timer -= dt;
+      if (wh.state === 'hidden') {
+        if (wh.timer <= 0) {
+          const a = Math.random() * Math.PI * 2, d = 24 + Math.random() * 40;
+          wh.mesh.position.set(Math.cos(a) * d, wh.baseY - 3, Math.sin(a) * d);
+          wh.mesh.rotation.y = Math.random() * Math.PI * 2;
+          // càng gần đảo càng to (gấp đôi khi ở sát vùng gần), càng xa thì giữ kích thước gốc
+          const scale = THREE.MathUtils.clamp(2.0 - (d - 24) / (50 - 24), 1.0, 2.0);
+          wh.mesh.scale.setScalar(scale);
+          wh.mesh.visible = true;
+          wh.state = 'rise'; wh.t = 0;
+        }
+      } else if (wh.state === 'rise') {
+        wh.t += dt;
+        const k = Math.min(1, wh.t / 2.6); // trồi lên từ từ
+        wh.mesh.position.y = wh.baseY - 3 + k * 3.15;
+        if (k >= 1) {
+          wh.state = 'hold'; wh.t = 0; wh.spoutT = 0;
+          const { jet, droplets } = wh.spout.userData;
+          wh.spout.visible = true;
+          jet.visible = true; jet.scale.set(1, 0.15, 1); jet.material.opacity = 0.7;
+          droplets.visible = true; droplets.material.opacity = 0.85;
+        }
+      } else if (wh.state === 'hold') {
+        wh.t += dt;
+        wh.spoutT += dt; // tia nước phun nhanh như thật, tách riêng khỏi thời lượng cá voi nổi trên mặt
+        const { jet, droplets } = wh.spout.userData;
+        jet.scale.y = Math.min(1.7, jet.scale.y + dt * 3.2);
+        jet.material.opacity = Math.max(0, 0.7 - wh.spoutT * 0.45);
+        // hạt nước tõe ra xung quanh đỉnh tia, rơi dần xuống theo trọng lực rồi mờ tắt
+        const dirs = droplets.userData.dirs;
+        const posAttr = droplets.geometry.attributes.position;
+        for (let i = 0; i < dirs.length; i++) {
+          const d = dirs[i], r = d.speed * wh.spoutT;
+          posAttr.array[i * 3] = Math.cos(d.a) * r;
+          posAttr.array[i * 3 + 1] = 0.75 + d.up * wh.spoutT - 2.2 * wh.spoutT * wh.spoutT;
+          posAttr.array[i * 3 + 2] = Math.sin(d.a) * r;
+        }
+        posAttr.needsUpdate = true;
+        droplets.material.opacity = Math.max(0, 0.85 - wh.spoutT * 0.6);
+        if (wh.spoutT >= 1.7 && jet.visible) { jet.visible = false; droplets.visible = false; }
+        if (wh.t >= 3.2) { // nán lại trên mặt biển một lúc rồi mới lặn, không vội vã
+          wh.state = 'sink'; wh.t = 0;
+          wh.spout.visible = false; jet.visible = false; droplets.visible = false;
+        }
+      } else if (wh.state === 'sink') {
+        wh.t += dt;
+        const k = Math.min(1, wh.t / 2.4); // lặn xuống từ từ
+        wh.mesh.position.y = wh.baseY - 3 + (1 - k) * 3.15;
+        if (k >= 1) {
+          wh.mesh.visible = false;
+          wh.state = 'hidden';
+          wh.timer = 14 + Math.random() * 26; // thỉnh thoảng thôi, không dồn dập
         }
       }
     }

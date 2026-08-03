@@ -36,10 +36,21 @@ export function makeBlockTexture(key, { grain = 0.12, border = 0.22, speckle = 0
   return tex;
 }
 
+// vân nhẹ dùng chung cho MỌI khối hộp/trụ trong game (nhân vật, bụi cây, rương, quái...) — tinh tế hơn vân địa
+// hình vì khối ở đây thường nhỏ, tránh trông rối; texture cache theo màu nên chi phí gần như bằng 0
+const objTexCache = new Map();
+function objTexFor(color) {
+  const key = typeof color === 'number' ? color.toString(16) : String(color);
+  if (!objTexCache.has(key)) {
+    objTexCache.set(key, makeBlockTexture('obj-' + key, { grain: 0.08, border: 0.14, speckle: 0.03 }));
+  }
+  return objTexCache.get(key);
+}
+
 export function box(w, h, d, color, opts = {}) {
   const m = new THREE.Mesh(
     new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshLambertMaterial({ color, ...opts })
+    new THREE.MeshLambertMaterial({ color, map: objTexFor(color), ...opts })
   );
   m.castShadow = true;
   m.receiveShadow = true;
@@ -48,7 +59,7 @@ export function box(w, h, d, color, opts = {}) {
 function cyl(rTop, rBot, h, color, seg = 10, opts = {}) {
   const m = new THREE.Mesh(
     new THREE.CylinderGeometry(rTop, rBot, h, seg),
-    new THREE.MeshLambertMaterial({ color, ...opts })
+    new THREE.MeshLambertMaterial({ color, map: objTexFor(color), ...opts })
   );
   m.castShadow = true;
   m.receiveShadow = true;
@@ -114,6 +125,11 @@ export function buildCharacter(i) {
   g.add(legL, legR, body, belt, armL, armR, head);
 
   // ===== nét riêng từng mẫu =====
+  // mũ/tóc/tai/khăn riêng của từng mẫu là ĐẶC TRƯNG DUY NHẤT để nhận diện nhân vật — không ẩn đi khi mặc
+  // giáp nữa. Giáp (armorGroup bên dưới) bỏ hẳn phần mũ giáp che đầu, chỉ còn ngực/vai/gối/cổ giáp thấp hơn
+  // cằm, nên không còn khối nào chồng lên mũ/tóc/tai để phải ẩn. hideWithArmor giờ chỉ giữ lại phụ kiện
+  // vùng NGỰC/VAI thực sự đè lên tấm giáp ngực (ví dụ khăn choàng), không đụng tới bất cứ gì trên đầu.
+  const hideWithArmor = [];
   if (s.style === 'mien') {
     const hair = box(0.46, 0.14, 0.44, s.hair); hair.position.y = 0.22;
     const brim = cyl(0.55, 0.55, 0.06, 0xd9c28a, 10); brim.position.y = 0.27;
@@ -139,6 +155,7 @@ export function buildCharacter(i) {
     const scarf = box(0.5, 0.14, 0.4, 0xc9505a); scarf.position.y = 1.06;      // khăn choàng đỏ — quàng vai, không theo đầu xoay
     const scarfTail = box(0.14, 0.34, 0.06, 0xc9505a); scarfTail.position.set(0.16, 0.84, -0.2); scarfTail.rotation.x = 0.25;
     g.add(scarf, scarfTail);
+    hideWithArmor.push(scarf, scarfTail); // nằm ngay vùng cổ giáp/viền ngực — vẫn phải ẩn để tránh chồng mesh
   } else if (s.style === 'tho') {
     const band = box(0.46, 0.1, 0.44, 0xfefefe); band.position.y = 0.22;        // bờm tai thỏ
     const rEarL = box(0.09, 0.34, 0.06, 0xfefefe); rEarL.position.set(-0.13, 0.44, 0); rEarL.rotation.z = 0.12;
@@ -167,32 +184,56 @@ export function buildCharacter(i) {
     g.add(vestL, vestR, btn1, btn2, buckle);
   }
 
-  // ===== giáp — tấm khối rõ ràng đè lên trang phục: giáp ngực có gân + đinh tán, 2 lớp giáp vai, viền vàng =====
-  const armorC = 0xaab4be, armorD = 0x7a848e, trim = 0xc9a227;
+  // ===== giáp — 4 kiểu màu sắc + họa tiết huy hiệu riêng theo từng mẫu (đồng bộ với tông màu sẵn có của
+  // mẫu đó: lá/nón mien, khăn đỏ soi, tai hồng tho, gi-lê xanh rêu gau) thay vì 1 kiểu xám dùng chung cho
+  // tất cả. KHÔNG còn mũ giáp che đầu — chỉ ngực/vai/gối/cổ giáp thấp hơn cằm, nên mũ/tóc/tai riêng của
+  // từng nhân vật luôn hiển thị rõ. Khung giáp mọi chỗ đều chủ động lớn hơn khung cơ thể/chân bên dưới
+  // (ví dụ giáp ngực 0.7×0.54×0.46 so với thân 0.55×0.55×0.32) để bọc ra ngoài gọn gàng, không z-fighting.
+  const ARMOR_STYLE = {
+    mien: { main: 0x6a9c5a, dark: 0x4f7a40, trim: 0xd9c28a, emblem: 'diamond' }, // giáp lá rừng — đồng/ngọc, khớp nón lá
+    soi:  { main: 0x3a3a42, dark: 0x26262c, trim: 0xc9505a, emblem: 'fang' },    // giáp sắt đen — viền đỏ khớp khăn choàng
+    tho:  { main: 0xe8e2d8, dark: 0xc9bfae, trim: 0xf2a5b5, emblem: 'gem' },     // giáp ngọc trai — viền hồng khớp tai thỏ
+    gau:  { main: 0xb08040, dark: 0x8a5f2e, trim: 0x3c5a2e, emblem: 'cross' },   // giáp đồng nặng — viền xanh rêu khớp gi-lê
+  };
+  const ap = ARMOR_STYLE[s.style];
+  const armorC = ap.main, armorD = ap.dark, trim = ap.trim;
   const armorGroup = new THREE.Group();
-  const plate = box(0.66, 0.5, 0.42, armorC); plate.position.y = 0.8;
-  const ridge = box(0.1, 0.5, 0.44, armorD); ridge.position.y = 0.8;                       // gân giữa ngực
-  const emblem = box(0.14, 0.14, 0.03, trim); emblem.position.set(0, 0.86, 0.23); emblem.rotation.z = Math.PI / 4; // huy hiệu thoi vàng
-  const trimTop = box(0.68, 0.05, 0.44, trim); trimTop.position.y = 1.04;                  // viền vàng trên/dưới
-  const trimBot = box(0.68, 0.05, 0.44, trim); trimBot.position.y = 0.56;
-  for (const [rx, ry] of [[-0.24, 0.98], [0.24, 0.98], [-0.24, 0.63], [0.24, 0.63]]) {     // 4 đinh tán
+  const plate = box(0.7, 0.54, 0.46, armorC); plate.position.y = 0.8;
+  const ridge = box(0.1, 0.54, 0.48, armorD); ridge.position.y = 0.8;                      // gân giữa ngực
+  const trimTop = box(0.72, 0.05, 0.48, trim); trimTop.position.y = 1.04;                  // viền trên/dưới
+  const trimBot = box(0.72, 0.05, 0.48, trim); trimBot.position.y = 0.56;
+  const gorget = box(0.46, 0.08, 0.42, armorD); gorget.position.y = 1.1;                   // cổ giáp — nằm sát dưới cằm, không đụng mũ/tóc phía trên
+  for (const [rx, ry] of [[-0.26, 0.98], [0.26, 0.98], [-0.26, 0.63], [0.26, 0.63]]) {     // 4 đinh tán
     const rivet = box(0.05, 0.05, 0.03, 0xe8eef4);
-    rivet.position.set(rx, ry, 0.225);
+    rivet.position.set(rx, ry, 0.245);
     armorGroup.add(rivet);
   }
+  // huy hiệu ngực — không chỉ đổi màu mà đổi cả hình dạng theo từng mẫu
+  if (ap.emblem === 'diamond') {
+    const emblem = box(0.14, 0.14, 0.03, trim); emblem.position.set(0, 0.86, 0.25); emblem.rotation.z = Math.PI / 4;
+    armorGroup.add(emblem);
+  } else if (ap.emblem === 'fang') {
+    const f1 = box(0.05, 0.17, 0.03, trim); f1.position.set(-0.04, 0.86, 0.25); f1.rotation.z = 0.5;
+    const f2 = box(0.05, 0.17, 0.03, trim); f2.position.set(0.04, 0.86, 0.25); f2.rotation.z = -0.5;
+    armorGroup.add(f1, f2);
+  } else if (ap.emblem === 'gem') {
+    const gem = cyl(0.08, 0.08, 0.05, trim, 8); gem.rotation.x = Math.PI / 2; gem.position.set(0, 0.86, 0.25);
+    armorGroup.add(gem);
+  } else {
+    const c1 = box(0.15, 0.05, 0.03, trim); c1.position.set(0, 0.86, 0.25);
+    const c2 = box(0.05, 0.15, 0.03, trim); c2.position.set(0, 0.86, 0.25);
+    armorGroup.add(c1, c2);
+  }
   const makePauldron = (side) => {   // giáp vai 2 lớp
-    const p1 = box(0.3, 0.14, 0.34, armorC); p1.position.set(side * 0.42, 1.1, 0);
-    const p2 = box(0.24, 0.12, 0.28, armorD); p2.position.set(side * 0.46, 1.0, 0);
-    const spike = box(0.06, 0.12, 0.06, trim); spike.position.set(side * 0.42, 1.2, 0);
+    const p1 = box(0.32, 0.15, 0.36, armorC); p1.position.set(side * 0.43, 1.1, 0);
+    const p2 = box(0.26, 0.13, 0.3, armorD); p2.position.set(side * 0.47, 1.0, 0);
+    const spike = box(0.06, 0.12, 0.06, trim); spike.position.set(side * 0.43, 1.21, 0);
     armorGroup.add(p1, p2, spike);
   };
   makePauldron(-1); makePauldron(1);
-  const helm = box(0.5, 0.18, 0.48, armorC); helm.position.y = 1.53;                       // mũ giáp + chỏm
-  const helmRim = box(0.52, 0.06, 0.5, trim); helmRim.position.y = 1.45;
-  const crest = box(0.06, 0.14, 0.3, 0xc9505a); crest.position.y = 1.66;                   // chỏm lông đỏ
-  const kneeL = box(0.22, 0.12, 0.26, armorD); kneeL.position.set(-0.14, 0.28, 0.02);      // giáp gối
-  const kneeR = box(0.22, 0.12, 0.26, armorD); kneeR.position.set(0.14, 0.28, 0.02);
-  armorGroup.add(plate, ridge, emblem, trimTop, trimBot, helm, helmRim, crest, kneeL, kneeR);
+  const kneeL = box(0.24, 0.13, 0.28, armorD); kneeL.position.set(-0.14, 0.28, 0.02);      // giáp gối — lớn hơn ống chân bên dưới
+  const kneeR = box(0.24, 0.13, 0.28, armorD); kneeR.position.set(0.14, 0.28, 0.02);
+  armorGroup.add(plate, ridge, trimTop, trimBot, gorget, kneeL, kneeR);
   armorGroup.visible = false;
   g.add(armorGroup);
 
@@ -200,7 +241,7 @@ export function buildCharacter(i) {
   g.scale.set(s.scaleW, s.scaleH, s.scaleW);
 
   g.userData = {
-    legL, legR, armL, armR, head, armorGroup,
+    legL, legR, armL, armR, head, armorGroup, hideWithArmor,
     foreL: armL.userData.fore, foreR: armR.userData.fore,
     socketL: armL.userData.socket, socketR: armR.userData.socket,
   };
@@ -324,6 +365,125 @@ export function buildRabbit() {
   const eyeR = box(0.03, 0.03, 0.02, 0x222222); eyeR.position.set(0.08, 0.34, 0.34);
   const nose = box(0.04, 0.03, 0.02, 0xe08a9a); nose.position.set(0, 0.28, 0.35);
   g.add(body, head, earL, earR, inEarL, inEarR, tail, eyeL, eyeR, nose);
+  return g;
+}
+
+// ===== Mèo trang trí — đi loanh quanh trên đảo =====
+export function buildCat() {
+  const g = new THREE.Group();
+  const c = pick([0x4a4a4a, 0xe0a868, 0xf5f0e8, 0x8a6a52]);
+  const body = box(0.26, 0.2, 0.42, c); body.position.set(0, 0.16, 0);
+  const head = box(0.2, 0.18, 0.18, c); head.position.set(0, 0.3, 0.25);
+  const earL = box(0.07, 0.09, 0.03, c); earL.position.set(-0.06, 0.42, 0.24); earL.rotation.z = -0.15;
+  const earR = box(0.07, 0.09, 0.03, c); earR.position.set(0.06, 0.42, 0.24); earR.rotation.z = 0.15;
+  const tail = box(0.05, 0.05, 0.3, c); tail.position.set(0, 0.24, -0.28); tail.rotation.x = -0.5;
+  const legL1 = box(0.06, 0.14, 0.06, c); legL1.position.set(-0.09, 0.07, 0.14);
+  const legR1 = box(0.06, 0.14, 0.06, c); legR1.position.set(0.09, 0.07, 0.14);
+  const legL2 = box(0.06, 0.14, 0.06, c); legL2.position.set(-0.09, 0.07, -0.14);
+  const legR2 = box(0.06, 0.14, 0.06, c); legR2.position.set(0.09, 0.07, -0.14);
+  const eyeL = box(0.03, 0.03, 0.02, 0x3a7a4a); eyeL.position.set(-0.06, 0.31, 0.34);
+  const eyeR = box(0.03, 0.03, 0.02, 0x3a7a4a); eyeR.position.set(0.06, 0.31, 0.34);
+  const nose = box(0.03, 0.02, 0.02, 0xe08a9a); nose.position.set(0, 0.27, 0.35);
+  g.add(body, head, earL, earR, tail, legL1, legR1, legL2, legR2, eyeL, eyeR, nose);
+  return g;
+}
+
+// ===== Chó trang trí — đi loanh quanh trên đảo =====
+export function buildDog() {
+  const g = new THREE.Group();
+  const c = pick([0xd9a868, 0x8a6a4a, 0xf5ecdc, 0x6a5040]);
+  const body = box(0.3, 0.24, 0.5, c); body.position.set(0, 0.19, 0);
+  const head = box(0.22, 0.2, 0.2, c); head.position.set(0, 0.34, 0.3);
+  const snout = box(0.12, 0.1, 0.12, c); snout.position.set(0, 0.3, 0.42);
+  const earL = box(0.06, 0.16, 0.05, 0x5a4030); earL.position.set(-0.11, 0.38, 0.26); earL.rotation.z = -0.2;
+  const earR = box(0.06, 0.16, 0.05, 0x5a4030); earR.position.set(0.11, 0.38, 0.26); earR.rotation.z = 0.2;
+  const tail = box(0.06, 0.06, 0.26, c); tail.position.set(0, 0.28, -0.32); tail.rotation.x = 0.4;
+  const legL1 = box(0.07, 0.18, 0.07, c); legL1.position.set(-0.1, 0.09, 0.16);
+  const legR1 = box(0.07, 0.18, 0.07, c); legR1.position.set(0.1, 0.09, 0.16);
+  const legL2 = box(0.07, 0.18, 0.07, c); legL2.position.set(-0.1, 0.09, -0.16);
+  const legR2 = box(0.07, 0.18, 0.07, c); legR2.position.set(0.1, 0.09, -0.16);
+  const eyeL = box(0.03, 0.03, 0.02, 0x222222); eyeL.position.set(-0.07, 0.36, 0.4);
+  const eyeR = box(0.03, 0.03, 0.02, 0x222222); eyeR.position.set(0.07, 0.36, 0.4);
+  const nose = box(0.04, 0.03, 0.02, 0x222222); nose.position.set(0, 0.3, 0.48);
+  g.add(body, head, snout, earL, earR, tail, legL1, legR1, legL2, legR2, eyeL, eyeR, nose);
+  return g;
+}
+
+// ===== Gà trang trí — đi loanh quanh trên đảo =====
+export function buildChicken() {
+  const g = new THREE.Group();
+  const c = pick([0xf5f0e8, 0xc98a4a, 0x6a4a3a]);
+  const body = box(0.22, 0.24, 0.26, c); body.position.set(0, 0.28, 0);
+  // đầu gộp thành 1 nhóm riêng (đầu+mào+mỏ+tích+mắt) để xoay được nguyên khối khi mổ mổ
+  const headGroup = new THREE.Group(); headGroup.position.set(0, 0.46, 0.1);
+  const head = box(0.14, 0.14, 0.14, c); head.position.set(0, 0, 0);
+  const comb = box(0.03, 0.08, 0.1, 0xd9505a); comb.position.set(0, 0.09, -0.02);
+  const beak = box(0.06, 0.04, 0.06, 0xe8a838); beak.position.set(0, -0.02, 0.08);
+  const wattle = box(0.03, 0.05, 0.04, 0xd9505a); wattle.position.set(0, -0.06, 0.04);
+  const eyeL = box(0.02, 0.02, 0.02, 0x222222); eyeL.position.set(-0.05, 0.02, 0.06);
+  const eyeR = box(0.02, 0.02, 0.02, 0x222222); eyeR.position.set(0.05, 0.02, 0.06);
+  headGroup.add(head, comb, beak, wattle, eyeL, eyeR);
+  const tail = box(0.1, 0.2, 0.04, c); tail.position.set(0, 0.36, -0.14); tail.rotation.x = 0.6;
+  const legL = box(0.03, 0.16, 0.03, 0xe8a838); legL.position.set(-0.05, 0.08, 0);
+  const legR = box(0.03, 0.16, 0.03, 0xe8a838); legR.position.set(0.05, 0.08, 0);
+  g.add(body, headGroup, tail, legL, legR);
+  g.userData = { head: headGroup };
+  return g;
+}
+
+// ===== Cá voi ngoài khơi — đầu to phía trước, thon dần về đuôi, đuôi xòe cong chữ V =====
+export function buildWhale() {
+  const g = new THREE.Group();
+  const skin = 0x3a5a70, skin2 = 0x4a6f86, belly = 0xdce8ea;
+  const head = box(1.9, 1.3, 1.7, skin); head.position.set(0, -0.1, 1.05);       // đầu — phần to nhất
+  const body = box(1.4, 1.05, 1.5, skin2); body.position.set(0, -0.25, -0.5);    // thân giữa, thon dần
+  const tailBase = box(0.85, 0.65, 1.0, skin); tailBase.position.set(0, -0.35, -1.75); // gốc đuôi, nhỏ hơn nữa
+  const bellyPatch = box(1.1, 0.4, 2.6, belly); bellyPatch.position.set(0, -0.75, -0.2); // bụng sáng màu
+  const backRidge = box(0.28, 0.35, 2.3, skin); backRidge.position.set(0, 0.5, -0.1);    // gờ sống lưng
+  const blowhole = box(0.18, 0.1, 0.14, 0x22323c); blowhole.position.set(0, 0.55, 1.4);
+  const finL = box(0.12, 0.5, 0.85, skin2); finL.position.set(-0.95, -0.5, -0.2); finL.rotation.z = 0.55;
+  const finR = box(0.12, 0.5, 0.85, skin2); finR.position.set(0.95, -0.5, -0.2); finR.rotation.z = -0.55;
+  const eyeL = box(0.07, 0.07, 0.06, 0x111111); eyeL.position.set(-0.85, 0, 1.65);
+  const eyeR = box(0.07, 0.07, 0.06, 0x111111); eyeR.position.set(0.85, 0, 1.65);
+  // đuôi cong xòe chữ V — 2 phiến dẹt nghiêng ra 2 bên như đuôi cá voi thật
+  const flukeL = box(0.75, 0.08, 0.55, skin);
+  flukeL.position.set(-0.32, 0.05, -2.35); flukeL.rotation.z = 0.4; flukeL.rotation.y = -0.25;
+  const flukeR = box(0.75, 0.08, 0.55, skin);
+  flukeR.position.set(0.32, 0.05, -2.35); flukeR.rotation.z = -0.4; flukeR.rotation.y = 0.25;
+  g.add(head, body, tailBase, bellyPatch, backRidge, blowhole, finL, finR, eyeL, eyeR, flukeL, flukeR);
+  return g;
+}
+
+// ===== Tia nước phun từ lỗ thở cá voi: 1 tia dọc + các hạt tõe tròn xung quanh ở đỉnh =====
+export function buildSpout() {
+  const g = new THREE.Group();
+  const jetGeo = new THREE.ConeGeometry(0.1, 0.85, 8, 1, true);
+  const jetMat = new THREE.MeshBasicMaterial({
+    color: 0xe4f4f7, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const jet = new THREE.Mesh(jetGeo, jetMat);
+  jet.position.y = 0.42;
+  jet.visible = false;
+  g.add(jet);
+
+  // các hạt nước tõe ra xung quanh đỉnh tia — hướng + tốc độ ngẫu nhiên cố định từ lúc dựng
+  const n = 12;
+  const dropGeo = new THREE.BufferGeometry();
+  dropGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  const droplets = new THREE.Points(dropGeo, new THREE.PointsMaterial({
+    color: 0xe4f4f7, size: 0.09, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  droplets.visible = false;
+  const dirs = [];
+  for (let i = 0; i < n; i++) {
+    dirs.push({ a: (i / n) * Math.PI * 2 + rand(-0.25, 0.25), speed: rand(0.5, 1.1), up: rand(0.4, 0.9) });
+  }
+  droplets.userData.dirs = dirs;
+  g.add(droplets);
+
+  g.userData = { jet, droplets };
   return g;
 }
 export function buildBush() {

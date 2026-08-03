@@ -102,10 +102,23 @@ export class UI {
     $('shop-balance').innerHTML = `<span>🪙 ${s.gold} Gold</span><span>💎 ${s.diamonds} Diamonds</span>`;
     const items = [
       {
-        ico: '🛡', name: 'Armor', desc: `Reduces ${CFG.shop.armor.reduce} damage per hit · Durability ${CFG.shop.armor.dur}` +
-          (s.armorDur > 0 ? ` · Current: ${s.armorDur} durability` : ''),
-        price: `${CFG.shop.armor.price} 🪙`, can: s.gold >= CFG.shop.armor.price,
-        buy: () => { s.gold -= CFG.shop.armor.price; s.armorDur = CFG.shop.armor.dur; },
+        ico: '🛡', name: 'Armor',
+        desc: `Reduces ${CFG.shop.armor.reduce} damage per hit` +
+          (s.armorDur > 0 ? ` · Current: ${s.armorDur}/${CFG.shop.armor.maxDur} durability` : ` · Durability ${CFG.shop.armor.dur}`),
+        // đã có sẵn giáp trên người: mua thêm là CỘNG DỒN +dur độ bền (không mua ra cái giáp thứ 2), tối đa maxDur
+        label: s.armorDur >= CFG.shop.armor.maxDur ? 'Durability maxed'
+          : s.armorDur > 0 ? `Reinforce +${CFG.shop.armor.dur} (${CFG.shop.armor.price} 🪙)`
+          : `Buy ${CFG.shop.armor.price} 🪙`,
+        can: s.armorDur < CFG.shop.armor.maxDur && s.gold >= CFG.shop.armor.price,
+        buy: () => {
+          s.gold -= CFG.shop.armor.price;
+          if (s.armorDur > 0) {
+            s.armorDur = Math.min(CFG.shop.armor.maxDur, s.armorDur + CFG.shop.armor.dur);
+          } else {
+            s.armorDur = CFG.shop.armor.dur;
+            s.armorWorn = true; // mua lần đầu thì mặc luôn
+          }
+        },
       },
       {
         ico: '🗡', name: 'Sword', desc: `Damage ${CFG.shop.sword.dmg} · Durability ${CFG.shop.sword.dur}` +
@@ -140,7 +153,7 @@ export class UI {
         <div class="shop-info"><b>${it.name}</b><small>${it.desc}</small></div>`;
       const btn = document.createElement('button');
       btn.className = 'btn' + (it.can ? '' : ' disabled');
-      btn.textContent = it.price === '—' ? 'Owned' : `Buy ${it.price}`;
+      btn.textContent = it.label ?? (it.price === '—' ? 'Owned' : `Buy ${it.price}`);
       btn.onclick = () => {
         if (!it.can) { this.audio.sfx('deny'); return; }
         it.buy();
@@ -206,9 +219,22 @@ export class UI {
     }
 
     addSep('— Worn Equipment —');
-    addRow(`<span>🛡</span><div class="bag-info"><span>Armor${s.armorDur > 0 ? ' · WORN' : ''}</span>
-      <small>${s.armorDur > 0 ? `Reduces ${CFG.shop.armor.reduce} damage per hit · Durability left ${s.armorDur}` : 'Not owned — buy in Shop, equips automatically'}</small></div>`,
-      s.armorDur > 0 ? 'equipped' : '');
+    const armorWorn = s.armorDur > 0 && s.armorWorn;
+    const armorRow = addRow(`<span>🛡</span><div class="bag-info"><span>Armor${armorWorn ? ' · WORN' : ''}</span>
+      <small>${s.armorDur > 0
+        ? `Reduces ${CFG.shop.armor.reduce} damage per hit · Durability left ${s.armorDur}/${CFG.shop.armor.maxDur}` + (armorWorn ? '' : ' · Currently taken off')
+        : 'Not owned — buy in Shop'}</small></div>`,
+      armorWorn ? 'equipped' : '');
+    if (s.armorDur > 0) {
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.textContent = armorWorn ? 'Take Off' : 'Wear';
+      btn.onclick = () => {
+        game.toggleArmor();
+        this.renderBag(game);
+      };
+      armorRow.appendChild(btn);
+    }
     addRow(`<span>🔮</span><div class="bag-info"><span>Protection Orb${s.orbPoints > 0 ? ' · ACTIVE' : ''}</span>
       <small>${s.orbPoints > 0 ? `Absorbs fall damage · ${s.orbPoints} protection points left` : 'Not owned — buy in Shop with diamonds'}</small></div>`,
       s.orbPoints > 0 ? 'equipped' : '');
@@ -244,7 +270,9 @@ export class UI {
     const s = this.save;
     this.pvChar = buildCharacter(s.charIndex);
     this.pvChar.rotation.y = 0.45;
-    this.pvChar.userData.armorGroup.visible = s.armorDur > 0;
+    const pvWearingArmor = s.armorDur > 0 && s.armorWorn;
+    this.pvChar.userData.armorGroup.visible = pvWearingArmor;
+    for (const o of this.pvChar.userData.hideWithArmor || []) o.visible = !pvWearingArmor;
     if (game.weapon === 'sword' && s.swordDur > 0) {
       const sw = buildSword();
       sw.position.set(0, -0.02, 0.1);
@@ -288,7 +316,7 @@ export class UI {
     const warns = [];
     if (s.hasGun && s.ammo > 0 && s.ammo <= 3) warns.push(`⚠ Low ammo (${s.ammo})`);
     if (s.swordDur > 0 && s.swordDur <= 4) warns.push(`⚠ Sword about to break (${s.swordDur})`);
-    if (s.armorDur > 0 && s.armorDur <= 5) warns.push(`⚠ Armor about to break (${s.armorDur})`);
+    if (s.armorDur > 0 && s.armorWorn && s.armorDur <= 5) warns.push(`⚠ Armor about to break (${s.armorDur})`);
     if (s.orbPoints > 0 && s.orbPoints <= 20) warns.push(`⚠ Protection running low (${s.orbPoints})`);
     if (warns.length && !this.toastActive) {
       $('hud-warning').textContent = warns.join(' · ');
