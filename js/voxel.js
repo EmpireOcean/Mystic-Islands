@@ -5,7 +5,7 @@ import { rand, randInt, pick, chance } from './config.js';
 // ===== Texture pixel 16x16 dùng chung — vân hạt + viền tối giả AO ở cạnh khối =====
 // Một tấm texture cho cả nghìn khối instance nên chi phí gần như bằng 0.
 const texCache = new Map();
-export function makeBlockTexture(key, { grain = 0.12, border = 0.22, speckle = 0.06 } = {}) {
+export function makeBlockTexture(key, { grain = 0.12, border = 0.22, speckle = 0.06, speckleDepth = 0.12 } = {}) {
   if (texCache.has(key)) return texCache.get(key);
   const S = 16;
   const cv = document.createElement('canvas');
@@ -18,7 +18,7 @@ export function makeBlockTexture(key, { grain = 0.12, border = 0.22, speckle = 0
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
       let v = 1 - grain / 2 + rnd() * grain;          // vân hạt
-      if (rnd() < speckle) v -= 0.12;                  // đốm sẫm rải rác
+      if (rnd() < speckle) v -= speckleDepth;          // đốm sẫm rải rác
       const edge = Math.min(x, y, S - 1 - x, S - 1 - y);
       if (edge === 0) v *= 1 - border;                 // viền ngoài tối — AO giữa các khối
       else if (edge === 1) v *= 1 - border * 0.45;     // chuyển tiếp mềm
@@ -45,6 +45,85 @@ function objTexFor(color) {
     objTexCache.set(key, makeBlockTexture('obj-' + key, { grain: 0.08, border: 0.14, speckle: 0.03 }));
   }
   return objTexCache.get(key);
+}
+
+// ===== Texture riêng cho vỏ cây (vân dọc) và tán lá (đốm nhiều tầng) — CÙNG quy ước "hệ số sáng gần trắng"
+// như makeBlockTexture (an toàn, đã kiểm chứng đúng màu khi nhân với material.color trong shader), chỉ khác
+// noise pattern để rõ/đậm hơn hẳn texture khối thường (objTexFor) — thân/tán cây có kết cấu rõ kiểu voxel
+const barkTexCache = new Map();
+function barkTexFor(color) {
+  const key = typeof color === 'number' ? color.toString(16) : String(color);
+  if (barkTexCache.has(key)) return barkTexCache.get(key);
+  const S = 16;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  let seed = 0;
+  for (let i = 0; i < key.length; i++) seed += key.charCodeAt(i) * 53;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const streakCols = new Set();
+  while (streakCols.size < 3) streakCols.add(Math.floor(rnd() * S)); // vài cột vân dọc tối cố định — như vân gỗ/vỏ cây thật
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      let v = streakCols.has(x) ? 0.68 + rnd() * 0.14 : 0.9 + rnd() * 0.14;
+      const edge = Math.min(x, y, S - 1 - x, S - 1 - y);
+      if (edge === 0) v *= 0.78;
+      const c = Math.round(255 * Math.min(1, v));
+      const i = (y * S + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = c;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; // cho phép UV lệch/lặp > 1 (tileUV bên dưới dùng để giữ mật độ hạt cố định)
+  barkTexCache.set(key, tex);
+  return tex;
+}
+
+// tile mật độ hạt CỐ ĐỊNH theo đơn vị thế giới (1 đơn vị = 1 lượt lặp texture), thay vì luôn kéo giãn đúng 1
+// lượt texture cho MỌI khối bất kể to nhỏ (khối nhỏ trước đây bị "co giãn" nhìn mịn/nhỏ hơn hẳn khối to) —
+// đồng thời lệch điểm bắt đầu ngẫu nhiên để các khối cùng kích thước không lặp lại y hệt cùng một góc texture
+function tileUV(geo, w, h, d) {
+  const uv = geo.attributes.uv;
+  const ox = rand(0, 1), oy = rand(0, 1);
+  const faces = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]]; // thứ tự mặt của BoxGeometry: +x -x +y -y +z -z
+  for (let f = 0; f < 6; f++) {
+    const [su, sv] = faces[f];
+    for (let v = 0; v < 4; v++) {
+      const idx = f * 4 + v;
+      uv.setXY(idx, uv.getX(idx) * su + ox, uv.getY(idx) * sv + oy);
+    }
+  }
+  uv.needsUpdate = true;
+}
+
+function barkBox(w, h, d, color) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  tileUV(geo, w, h, d);
+  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, map: barkTexFor(color) }));
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+function leafTexFor(color) {
+  const key = typeof color === 'number' ? color.toString(16) : String(color);
+  // makeBlockTexture tự cache theo key nên không cần Map riêng ở đây
+  const tex = makeBlockTexture('leaf-' + key, { grain: 0.16, border: 0.2, speckle: 0.4, speckleDepth: 0.22 });
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+function leafBox(w, h, d, color) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  tileUV(geo, w, h, d);
+  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, map: leafTexFor(color) }));
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
 }
 
 export function box(w, h, d, color, opts = {}) {
@@ -273,48 +352,73 @@ export function buildGun() {
 // ===== Cây các cỡ, hoa, cỏ, đá =====
 export function buildTree(scale = 1) {
   const g = new THREE.Group();
-  const h = rand(1.8, 3.2);
-  const trunk = box(0.28, h, 0.28, pick([0x6e4a28, 0x7a5230, 0x5f3f22]));
-  trunk.position.y = h / 2;
-  g.add(trunk);
-  const leafC = pick([0x8fbf7f, 0x7fb069, 0xa8c98a, 0x6fa860, 0x98c47e]);
-  const layers = randInt(2, 3);
-  for (let i = 0; i < layers; i++) {
-    const s = rand(1.5, 1.9) - i * 0.45;
-    const c = box(s, rand(0.6, 0.9), s, leafC);
-    c.position.set(rand(-0.1, 0.1), h + 0.3 + i * 0.65, rand(-0.1, 0.1));
-    g.add(c);
+  const h = rand(1.6, 2.6);
+  const trunkC = pick([0x8a6a3e, 0x7a5a34, 0x96754a]); // nâu vàng ấm, gần tông ảnh tham khảo
+  // thân thon dần lên trên — 2 đoạn thay vì 1 khối trụ đều suốt chiều cao
+  const trunkLow = barkBox(0.32, h * 0.6, 0.32, trunkC); trunkLow.position.y = h * 0.3;
+  const trunkHigh = barkBox(0.24, h * 0.42, 0.24, trunkC); trunkHigh.position.y = h * 0.6 + h * 0.21;
+  g.add(trunkLow, trunkHigh);
+  // 1 cành nhỏ chìa ra bên hông cho có nét, giống chi tiết trong ảnh tham khảo
+  const branch = barkBox(0.5, 0.09, 0.09, trunkC);
+  branch.position.set(-0.28, h * 0.55, 0);
+  branch.rotation.z = 0.5;
+  g.add(branch);
+
+  const leafMain = pick([0x8fbf7f, 0x7fb069, 0x93c47d]);
+  const leafHi = pick([0xa8d494, 0xb0d99e]); // tông sáng hơn — khối đỉnh làm điểm nhấn như trong ảnh
+  // tán lá dạng CỤM khối lệch nhau quanh 1 khối đỉnh, thay vì tháp tầng đều — ra dáng bụi lá gộp khối
+  const top = leafBox(1.1, 0.95, 1.1, leafHi);
+  top.position.y = h + 0.7;
+  g.add(top);
+  const bumps = randInt(3, 4);
+  for (let i = 0; i < bumps; i++) {
+    const a = (i / bumps) * Math.PI * 2 + rand(-0.35, 0.35);
+    const d = rand(0.5, 0.7);
+    const s = rand(0.6, 0.85);
+    const b = leafBox(s, s * rand(0.85, 1.1), s, leafMain);
+    b.position.set(Math.cos(a) * d, h + 0.32 + rand(-0.1, 0.15), Math.sin(a) * d);
+    g.add(b);
   }
   g.scale.setScalar(scale);
   return g;
 }
-// cây cổ thụ: cao, tán rộng nhiều lớp nhiều tông màu
+// cây cổ thụ: cùng logic tán CỤM khối như buildTree (không dùng tấm dẹt xếp chồng nữa) — chỉ to hơn, thân
+// có thêm rễ, và 2 tầng cụm khối lá thay vì 1 để tán đầy/rộng hơn hẳn cây thường
 export function buildBigTree(scale = 1) {
   const g = new THREE.Group();
-  const h = rand(4, 5.5);
+  const h = rand(3.2, 4.4);
   const trunkC = pick([0x6e4a28, 0x5f3f22]);
-  const trunk = box(0.5, h, 0.5, trunkC); trunk.position.y = h / 2;
-  const root1 = box(0.24, 0.5, 0.24, trunkC); root1.position.set(0.3, 0.25, 0.2);
-  const root2 = box(0.2, 0.4, 0.2, trunkC); root2.position.set(-0.28, 0.2, -0.15);
-  const branch = box(0.2, 0.2, 1.1, trunkC); branch.position.set(0.3, h * 0.72, 0.4); branch.rotation.y = 0.5;
-  g.add(trunk, root1, root2, branch);
-  const c1 = pick([0x7fb069, 0x6fa860]);
-  const c2 = pick([0x98c47e, 0xa8c98a]);
-  // tán chính 4 lớp so le hai tông
-  const layers = [
-    [3.4, 1.0, 0, h + 0.4, 0, c1],
-    [2.7, 0.9, 0.5, h + 1.2, -0.3, c2],
-    [2.0, 0.8, -0.4, h + 1.9, 0.3, c1],
-    [1.2, 0.7, 0.1, h + 2.5, 0, c2],
-  ];
-  for (const [s, hh, ox, y, oz, cc] of layers) {
-    const c = box(s, hh, s * rand(0.9, 1.1), cc);
-    c.position.set(ox, y, oz);
-    g.add(c);
+  const trunkLow = barkBox(0.56, h * 0.55, 0.56, trunkC); trunkLow.position.y = h * 0.275;
+  const trunkHigh = barkBox(0.4, h * 0.5, 0.4, trunkC); trunkHigh.position.y = h * 0.55 + h * 0.25;
+  const root1 = barkBox(0.3, 0.6, 0.3, trunkC); root1.position.set(0.34, 0.3, 0.22);
+  const root2 = barkBox(0.26, 0.5, 0.26, trunkC); root2.position.set(-0.32, 0.25, -0.18);
+  const branch = barkBox(0.6, 0.14, 0.14, trunkC); branch.position.set(-0.36, h * 0.62, 0); branch.rotation.z = 0.5;
+  g.add(trunkLow, trunkHigh, root1, root2, branch);
+
+  const leafMain = pick([0x7fb069, 0x6fa860]);
+  const leafHi = pick([0x98c47e, 0xa8c98a]); // tông sáng hơn — khối đỉnh làm điểm nhấn, đồng bộ buildTree
+  const top = leafBox(1.7, 1.4, 1.7, leafHi);
+  top.position.y = h + 1.05;
+  g.add(top);
+  // tầng cụm khối GIỮA (to) + tầng DƯỚI (thấp hơn, xòe rộng ra) — tạo tán dày, đầy hơn cây thường
+  const midBumps = randInt(5, 6);
+  for (let i = 0; i < midBumps; i++) {
+    const a = (i / midBumps) * Math.PI * 2 + rand(-0.3, 0.3);
+    const d = rand(0.9, 1.15);
+    const s = rand(1.0, 1.3);
+    const b = leafBox(s, s * rand(0.85, 1.05), s, leafMain);
+    b.position.set(Math.cos(a) * d, h + 0.55 + rand(-0.15, 0.2), Math.sin(a) * d);
+    g.add(b);
   }
-  // cụm tán phụ trên cành
-  const side = box(1.1, 0.7, 1.1, c2); side.position.set(0.85, h * 0.72 + 0.5, 0.9);
-  g.add(side);
+  const lowBumps = randInt(3, 4);
+  for (let i = 0; i < lowBumps; i++) {
+    const a = (i / lowBumps) * Math.PI * 2 + rand(0.3, 0.9);
+    const d = rand(0.6, 0.85);
+    const s = rand(0.75, 1.0);
+    const b = leafBox(s, s * rand(0.85, 1.05), s, leafHi);
+    b.position.set(Math.cos(a) * d, h + 0.1 + rand(-0.1, 0.1), Math.sin(a) * d);
+    g.add(b);
+  }
   g.scale.setScalar(scale);
   return g;
 }
@@ -338,15 +442,45 @@ export function buildGrassTuft() {
 }
 export function buildRock() {
   const g = new THREE.Group();
-  const c = pick([0x9a9a92, 0x8a8f96, 0xa8a49a]);
-  const n = randInt(1, 3);
-  for (let i = 0; i < n; i++) {
-    const r = box(rand(0.3, 0.7), rand(0.25, 0.5), rand(0.3, 0.7), c);
-    r.position.set(rand(-0.3, 0.3), 0.15, rand(-0.3, 0.3));
-    r.rotation.y = rand(0, Math.PI);
-    g.add(r);
-  }
-  g.userData.hitR = 0.5; g.userData.hitH = 0.55; // khối va chạm trụ tròn
+  const cMain = pick([0xc2c8ce, 0xb6bec6, 0xc4c0cc]); // xám xanh nhạt đúng tông ảnh mẫu
+  const cA = pick([0xd0d6da, 0xc8ccd4]);
+  const cB = pick([0xbcc4ca, 0xc6c0d0]);
+  const rot = rand(0, Math.PI * 2); // CÙNG một góc xoay cho cả 3 khối — "xoay cùng chiều khối chính"
+
+  // khối CHÍNH — khối vuông thường, nhô cao nhất trong cụm; thu nhỏ hẳn cả cụm so với bản trước
+  const sMain = rand(0.22, 0.3); // "bán kính" quy ước — bề rộng khối thật = sMain*2
+  const hMain = sMain * rand(1.8, 2.3);
+  const embedDepth = sMain * 0.35; // chôn xuống đất — dùng chung cho cả 3 khối để chúng "mọc" từ cùng 1 mặt nền
+  const main = box(sMain * 2, hMain, sMain * 2, cMain);
+  main.position.y = hMain / 2 - embedDepth;
+  main.rotation.y = rot;
+  g.add(main);
+
+  // khối phụ lệch TRÁI/PHẢI — bề ngang KHÔNG nhỏ hơn khối chính, thấp hơn khối chính, cùng góc xoay, đặt
+  // sát khối chính (chồng lấn nhiều) để chỉ thò ra một chút thay vì lộ ra cả nửa khối như trước
+  const sA = sMain * rand(1.0, 1.15);
+  const hA = hMain * rand(0.45, 0.65);
+  const sideDir = chance(0.5) ? 1 : -1;
+  const offA = (sMain + sA) * 0.22;
+  const a = box(sA * 2, hA, sA * 2, cA);
+  a.position.set(sideDir * offA, hA / 2 - embedDepth, rand(-sMain * 0.15, sMain * 0.15));
+  a.rotation.y = rot;
+  g.add(a);
+
+  // khối phụ lệch TRƯỚC/SAU — cũng không nhỏ hơn khối chính, cùng góc xoay, độ cao khác hẳn khối lệch trái/phải,
+  // cũng chỉ thò ra một chút như khối lệch trái/phải
+  const sB = sMain * rand(1.0, 1.15);
+  let hB = hMain * rand(0.3, 0.5);
+  if (Math.abs(hB - hA) < hMain * 0.1) hB = hMain * (hB < hA ? 0.3 : 0.55); // ép chênh lệch rõ với khối lệch trái/phải
+  const frontDir = chance(0.5) ? 1 : -1;
+  const offB = (sMain + sB) * 0.22;
+  const b = box(sB * 2, hB, sB * 2, cB);
+  b.position.set(rand(-sMain * 0.15, sMain * 0.15), hB / 2 - embedDepth, frontDir * offB);
+  b.rotation.y = rot;
+  g.add(b);
+
+  g.userData.hitR = Math.max(sMain, offA + sA * 0.5, offB + sB * 0.5);
+  g.userData.hitH = hMain - embedDepth;
   return g;
 }
 

@@ -897,7 +897,13 @@ export class Game {
           // "bước lên 1 khối" CHỈ áp dụng khi đang đứng đất; giữa không trung mọi khối cao hơn chân đều là tường
           // (fix bug: nhảy sát tường 2 tầng lách qua được khối trên cùng)
           const stepAllow = pl.grounded ? 1.05 : 0.05;
-          if (h <= pl.pos.y + stepAllow) continue;
+          // NGOẠI LỆ: nếu khung hình TRƯỚC đã ở ngang hoặc cao hơn đỉnh khối này (đang rơi xuống từ bên trên,
+          // tức là đang đáp lên đúng đỉnh khối chứ không phải chui/lách từ dưới hoặc bên hông vào) thì không
+          // coi là tường — nhường cho phần kiểm tra "đáp đất" bên dưới xử lý. Nếu không có ngoại lệ này, nhân
+          // vật nhảy lên đúng 1 ô cao hơn sẽ bị đẩy văng ngang ngay khung hình chạm đỉnh (trước khi kịp đáp),
+          // lọt ra ngoài rìa khối và rơi xuyên xuống dưới.
+          const wasAboveTop = prevY >= h - 0.05;
+          if (h <= pl.pos.y + stepAllow || wasAboveTop) continue;
           const ox = 0.82 - Math.abs(pl.pos.x - tx);   // 0.5 (nửa ô) + 0.32 (bán kính người)
           const oz = 0.82 - Math.abs(pl.pos.z - tz);
           if (ox > 0 && oz > 0 && pl.pos.y < h && pl.pos.y + 1.6 > 0) {
@@ -919,8 +925,12 @@ export class Game {
         pl.vel.y = 0;
         continue;
       }
-      // thân người kẹt giữa đáy và mặt trên → đẩy ngang ra
-      if (pl.pos.y < p.y - 0.12 && pl.pos.y + 1.6 > bottom) {
+      // thân người kẹt giữa đáy và mặt trên → đẩy ngang ra — TRỪ khi khung hình trước đang ở ngang/cao hơn
+      // mặt trên (đang rơi xuống từ bên trên để đáp lên đúng vật thể này, không phải đang chui/lách từ dưới
+      // hoặc bên hông vào). Không có ngoại lệ này thì đúng khung hình sắp chạm mặt trên sẽ bị đẩy văng ngang
+      // ra rìa trước khi phần "đáp đất" bên dưới kịp bắt được, khiến người chơi lọt qua rìa và rơi xuyên xuống.
+      const landingFromAbove = prevY >= p.y - 0.12;
+      if (!landingFromAbove && pl.pos.y < p.y - 0.12 && pl.pos.y + 1.6 > bottom) {
         const oxp = (p.hw + 0.3) - Math.abs(dxp);
         const ozp = (p.hd + 0.3) - Math.abs(dzp);
         if (oxp < ozp) pl.pos.x = p.x + Math.sign(dxp || 0.01) * (p.hw + 0.3);

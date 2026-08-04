@@ -492,10 +492,10 @@ function buildIslandDecor(w) {
   }
 
   // mảng hoa
-  for (let c = 0; c < randInt(3, 5); c++) {
+  for (let c = 0; c < randInt(4, 6); c++) {
     const [ck] = pick(openTiles);
     const [cx, cz] = tileAt(ck);
-    for (let i = 0; i < randInt(4, 8); i++) {
+    for (let i = 0; i < randInt(5, 9); i++) {
       const tx = Math.round(cx + rand(-2, 2)), tz = Math.round(cz + rand(-2, 2));
       const k = tileKey(tx, tz);
       if (!w.tiles.has(k) || w.water.has(k)) continue;
@@ -505,13 +505,13 @@ function buildIslandDecor(w) {
     }
   }
 
-  // cỏ, đá, bụi rậm rải rác
-  for (let i = 0; i < 40; i++) {
+  // cỏ, đá, bụi rậm rải rác — tăng mật độ tổng thể + cỏ chiếm tỉ lệ cao nhất trong 3 loại (nhiều hơn hẳn hoa)
+  for (let i = 0; i < 65; i++) {
     const [k, h] = pick(openTiles);
     const [x, z] = tileAt(k);
     const roll = Math.random();
-    const isRockDeco = roll >= 0.55 && roll < 0.8;
-    const d = roll < 0.55 ? V.buildGrassTuft() : isRockDeco ? V.buildRock() : V.buildBush();
+    const isRockDeco = roll >= 0.65 && roll < 0.83;
+    const d = roll < 0.65 ? V.buildGrassTuft() : isRockDeco ? V.buildRock() : V.buildBush();
     const wx = x + rand(-0.4, 0.4), wz = z + rand(-0.4, 0.4);
     d.position.set(wx, h, wz);
     w.group.add(d);
