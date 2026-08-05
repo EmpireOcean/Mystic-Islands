@@ -1001,7 +1001,7 @@ export function buildFloatingObject(shallow = false) {
 export function buildMonsterMelee(type) {
   const g = new THREE.Group();
   switch (type % 5) {
-    case 0: { // yêu tinh xanh cầm chùy
+    case 0: { // yêu tinh xanh cầm chùy — chùy tách thành sub-group riêng (weaponArm) để animate lúc ra đòn
       const c = 0x6da85a;
       const bodyM = box(0.55, 0.5, 0.45, c); bodyM.position.y = 0.5;
       const head = box(0.45, 0.38, 0.42, c); head.position.y = 0.98;
@@ -1012,12 +1012,16 @@ export function buildMonsterMelee(type) {
       const tooth = box(0.06, 0.1, 0.03, 0xffffff); tooth.position.set(0.08, 0.82, 0.22);
       const legL = box(0.18, 0.26, 0.22, 0x4f7a40); legL.position.set(-0.15, 0.13, 0);
       const legR = box(0.18, 0.26, 0.22, 0x4f7a40); legR.position.set(0.15, 0.13, 0);
-      const club = box(0.14, 0.6, 0.14, 0x7a5230); club.position.set(0.42, 0.7, 0.1); club.rotation.z = -0.5;
-      const clubHead = box(0.26, 0.26, 0.26, 0x5f4022); clubHead.position.set(0.58, 0.98, 0.1);
-      g.add(bodyM, head, earL, earR, eyeL, eyeR, tooth, legL, legR, club, clubHead);
+      const armWeapon = new THREE.Group();
+      armWeapon.position.set(0.35, 0.75, 0.1);
+      const club = box(0.14, 0.6, 0.14, 0x7a5230); club.position.set(0.07, -0.05, 0); club.rotation.z = -0.5;
+      const clubHead = box(0.26, 0.26, 0.26, 0x5f4022); clubHead.position.set(0.23, 0.23, 0);
+      armWeapon.add(club, clubHead);
+      g.add(bodyM, head, earL, earR, eyeL, eyeR, tooth, legL, legR, armWeapon);
+      g.userData.weaponArm = armWeapon;
       break;
     }
-    case 1: { // cua đá cam càng to
+    case 1: { // cua đá cam càng to — càng phải tách riêng (weaponArm), càng trái đứng yên
       const c = 0xd97a4a;
       const bodyM = box(0.9, 0.4, 0.7, c); bodyM.position.y = 0.45;
       const eyeStalkL = box(0.06, 0.25, 0.06, c); eyeStalkL.position.set(-0.2, 0.75, 0.25);
@@ -1025,18 +1029,22 @@ export function buildMonsterMelee(type) {
       const eyeL = box(0.11, 0.11, 0.11, 0x222222); eyeL.position.set(-0.2, 0.9, 0.25);
       const eyeR = box(0.11, 0.11, 0.11, 0x222222); eyeR.position.set(0.2, 0.9, 0.25);
       const clawL = box(0.32, 0.28, 0.3, 0xc4633a); clawL.position.set(-0.62, 0.5, 0.25);
-      const clawR = box(0.32, 0.28, 0.3, 0xc4633a); clawR.position.set(0.62, 0.5, 0.25);
       const pincerL = box(0.16, 0.1, 0.2, 0xb0522e); pincerL.position.set(-0.62, 0.68, 0.38);
-      const pincerR = box(0.16, 0.1, 0.2, 0xb0522e); pincerR.position.set(0.62, 0.68, 0.38);
+      const armWeapon = new THREE.Group();
+      armWeapon.position.set(0.5, 0.5, 0.15);
+      const clawR = box(0.32, 0.28, 0.3, 0xc4633a); clawR.position.set(0.12, 0, 0.10);
+      const pincerR = box(0.16, 0.1, 0.2, 0xb0522e); pincerR.position.set(0.12, 0.18, 0.23);
+      armWeapon.add(clawR, pincerR);
       for (let i = 0; i < 3; i++) {
         const lgL = box(0.08, 0.3, 0.08, 0xb0522e); lgL.position.set(-0.4 + i * 0.05, 0.15, -0.15 + i * 0.18); lgL.rotation.z = 0.5;
         const lgR = box(0.08, 0.3, 0.08, 0xb0522e); lgR.position.set(0.4 - i * 0.05, 0.15, -0.15 + i * 0.18); lgR.rotation.z = -0.5;
         g.add(lgL, lgR);
       }
-      g.add(bodyM, eyeStalkL, eyeStalkR, eyeL, eyeR, clawL, clawR, pincerL, pincerR);
+      g.add(bodyM, eyeStalkL, eyeStalkR, eyeL, eyeR, clawL, pincerL, armWeapon);
+      g.userData.weaponArm = armWeapon;
       break;
     }
-    case 2: { // hộ vệ đá — lõi phát sáng
+    case 2: { // hộ vệ đá — lõi phát sáng — tay phải tách riêng (weaponArm), tay trái đứng yên
       const c = 0x8a8f96;
       const bodyM = box(0.8, 0.7, 0.6, c); bodyM.position.y = 0.75;
       const core = box(0.24, 0.24, 0.06, 0x6ad8e8); core.position.set(0, 0.8, 0.31);
@@ -1045,46 +1053,63 @@ export function buildMonsterMelee(type) {
       const shoulderL = box(0.3, 0.35, 0.35, 0x7a7f86); shoulderL.position.set(-0.55, 1.0, 0);
       const shoulderR = box(0.3, 0.35, 0.35, 0x7a7f86); shoulderR.position.set(0.55, 1.0, 0);
       const armL = box(0.22, 0.5, 0.25, c); armL.position.set(-0.55, 0.55, 0);
-      const armR = box(0.22, 0.5, 0.25, c); armR.position.set(0.55, 0.55, 0);
+      const armWeapon = new THREE.Group();
+      armWeapon.position.set(0.55, 0.82, 0);
+      const armR = box(0.22, 0.5, 0.25, c); armR.position.set(0, -0.27, 0);
+      armWeapon.add(armR);
       const legL = box(0.26, 0.4, 0.3, 0x7a7f86); legL.position.set(-0.2, 0.2, 0);
       const legR = box(0.26, 0.4, 0.3, 0x7a7f86); legR.position.set(0.2, 0.2, 0);
-      g.add(bodyM, core, head, eye, shoulderL, shoulderR, armL, armR, legL, legR);
+      g.add(bodyM, core, head, eye, shoulderL, shoulderR, armL, legL, legR, armWeapon);
+      g.userData.weaponArm = armWeapon;
       break;
     }
-    case 3: { // tiểu quỷ tím có cánh và đuôi
+    case 3: { // tiểu quỷ tím có cánh và đuôi — không có tay cầm vũ khí, dùng đầu (weaponArm) để húc/cắn khi ra đòn
       const c = 0x9b6db0;
       const bodyM = box(0.5, 0.45, 0.4, c); bodyM.position.y = 0.55;
-      const head = box(0.42, 0.36, 0.4, c); head.position.y = 1.0;
-      const hornL = box(0.07, 0.2, 0.07, 0xe8e0d0); hornL.position.set(-0.14, 1.26, 0); hornL.rotation.z = 0.35;
-      const hornR = box(0.07, 0.2, 0.07, 0xe8e0d0); hornR.position.set(0.14, 1.26, 0); hornR.rotation.z = -0.35;
-      const eyeL = box(0.08, 0.06, 0.03, 0xff5a5a); eyeL.position.set(-0.1, 1.02, 0.21);
-      const eyeR = box(0.08, 0.06, 0.03, 0xff5a5a); eyeR.position.set(0.1, 1.02, 0.21);
       const wingL = box(0.35, 0.28, 0.05, 0x7a4f8f); wingL.position.set(-0.4, 0.75, -0.2); wingL.rotation.y = 0.6;
       const wingR = box(0.35, 0.28, 0.05, 0x7a4f8f); wingR.position.set(0.4, 0.75, -0.2); wingR.rotation.y = -0.6;
       const tail = box(0.08, 0.08, 0.5, c); tail.position.set(0, 0.4, -0.4); tail.rotation.x = 0.5;
       const tailTip = box(0.14, 0.12, 0.08, 0x7a4f8f); tailTip.position.set(0, 0.58, -0.62);
       const legL = box(0.16, 0.28, 0.2, c); legL.position.set(-0.13, 0.16, 0);
       const legR = box(0.16, 0.28, 0.2, c); legR.position.set(0.13, 0.16, 0);
-      g.add(bodyM, head, hornL, hornR, eyeL, eyeR, wingL, wingR, tail, tailTip, legL, legR);
+      const armWeapon = new THREE.Group();
+      armWeapon.position.set(0, 0.8, 0);
+      const head = box(0.42, 0.36, 0.4, c); head.position.set(0, 0.2, 0);
+      const hornL = box(0.07, 0.2, 0.07, 0xe8e0d0); hornL.position.set(-0.14, 0.46, 0); hornL.rotation.z = 0.35;
+      const hornR = box(0.07, 0.2, 0.07, 0xe8e0d0); hornR.position.set(0.14, 0.46, 0); hornR.rotation.z = -0.35;
+      const eyeL = box(0.08, 0.06, 0.03, 0xff5a5a); eyeL.position.set(-0.1, 0.22, 0.21);
+      const eyeR = box(0.08, 0.06, 0.03, 0xff5a5a); eyeR.position.set(0.1, 0.22, 0.21);
+      armWeapon.add(head, hornL, hornR, eyeL, eyeR);
+      g.add(bodyM, wingL, wingR, tail, tailTip, legL, legR, armWeapon);
+      g.userData.weaponArm = armWeapon;
       break;
     }
-    default: { // heo rừng nâu có nanh
+    default: { // heo rừng nâu có nanh — đầu + nanh tách riêng (weaponArm) để húc khi ra đòn
       const c = 0x8a6242;
+      // mô hình gốc dựng dọc theo trục X (mặt/mõm ở +X) — bọc trong sub-group rồi xoay lại cho khớp quy ước
+      // "+Z là hướng trước" mà rotation.y = atan2(dx,dz) dùng chung toàn game, nếu không quái sẽ đi ngang hông
+      const sub = new THREE.Group();
       const bodyM = box(0.85, 0.5, 0.55, c); bodyM.position.y = 0.5;
       const mane = box(0.5, 0.14, 0.57, 0x5f4022); mane.position.set(-0.1, 0.78, 0);
-      const head = box(0.4, 0.4, 0.42, c); head.position.set(0.5, 0.55, 0);
-      const snout = box(0.18, 0.18, 0.2, 0xb08a6a); snout.position.set(0.72, 0.45, 0);
-      const tuskL = box(0.05, 0.14, 0.05, 0xfff5e0); tuskL.position.set(0.68, 0.36, 0.14); tuskL.rotation.x = -0.4;
-      const tuskR = box(0.05, 0.14, 0.05, 0xfff5e0); tuskR.position.set(0.68, 0.36, -0.14); tuskR.rotation.x = 0.4;
-      const eyeL = box(0.06, 0.06, 0.03, 0x222222); eyeL.position.set(0.62, 0.68, 0.18);
-      const eyeR = box(0.06, 0.06, 0.03, 0x222222); eyeR.position.set(0.62, 0.68, -0.18);
+      const armWeapon = new THREE.Group();
+      armWeapon.position.set(0.35, 0.5, 0);
+      const head = box(0.4, 0.4, 0.42, c); head.position.set(0.15, 0.05, 0);
+      const snout = box(0.18, 0.18, 0.2, 0xb08a6a); snout.position.set(0.37, -0.05, 0);
+      const tuskL = box(0.05, 0.14, 0.05, 0xfff5e0); tuskL.position.set(0.33, -0.14, 0.14); tuskL.rotation.x = -0.4;
+      const tuskR = box(0.05, 0.14, 0.05, 0xfff5e0); tuskR.position.set(0.33, -0.14, -0.14); tuskR.rotation.x = 0.4;
+      const eyeL = box(0.06, 0.06, 0.03, 0x222222); eyeL.position.set(0.27, 0.18, 0.18);
+      const eyeR = box(0.06, 0.06, 0.03, 0x222222); eyeR.position.set(0.27, 0.18, -0.18);
+      armWeapon.add(head, snout, tuskL, tuskR, eyeL, eyeR);
       for (const [lx, lz] of [[-0.28, 0.18], [-0.28, -0.18], [0.28, 0.18], [0.28, -0.18]]) {
         const leg = box(0.14, 0.28, 0.14, 0x5f4022);
         leg.position.set(lx, 0.14, lz);
-        g.add(leg);
+        sub.add(leg);
       }
       const tail = box(0.06, 0.2, 0.06, 0x5f4022); tail.position.set(-0.45, 0.65, 0); tail.rotation.z = 0.6;
-      g.add(bodyM, mane, head, snout, tuskL, tuskR, eyeL, eyeR, tail);
+      sub.add(bodyM, mane, armWeapon, tail);
+      sub.rotation.y = -Math.PI / 2;
+      g.add(sub);
+      g.userData.weaponArm = armWeapon;
       break;
     }
   }
@@ -1104,11 +1129,17 @@ export function buildMonsterRanged(type) {
     const brim = cyl(0.42, 0.42, 0.06, robeD, 10); brim.position.y = 1.28;
     const eyeL = box(0.06, 0.06, 0.03, 0x222222); eyeL.position.set(-0.08, 1.14, 0.18);
     const eyeR = box(0.06, 0.06, 0.03, 0x222222); eyeR.position.set(0.08, 1.14, 0.18);
-    const staff = box(0.07, 1.1, 0.07, 0x7a5230); staff.position.set(0.4, 0.7, 0.15);
+    // gậy + quả cầu tách thành sub-group riêng, trục xoay đặt ở vị trí bàn tay — cho phép animate
+    // "giơ gậy chỉ hướng" lúc bắn phép (xoay staffArm ở nơi gọi), thay vì đứng yên một chỗ cố định
+    const staffArm = new THREE.Group();
+    staffArm.position.set(0.38, 0.8, 0.12);
+    const staff = box(0.07, 1.1, 0.07, 0x7a5230); staff.position.set(0, 0, 0);
     const orb = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8),
       new THREE.MeshLambertMaterial({ color: 0x6ad8e8, emissive: 0x2a7a8a }));
-    orb.position.set(0.4, 1.32, 0.15);
-    g.add(body, head, hat, brim, eyeL, eyeR, staff, orb);
+    orb.position.set(0, 0.62, 0);
+    staffArm.add(staff, orb);
+    g.add(body, head, hat, brim, eyeL, eyeR, staffArm);
+    g.userData.staffArm = staffArm;
   } else { // pháo đài mắt độc màu đỏ đất, nòng pháo lớn
     const c = 0x9a5a5a, cD = 0x7a4444;
     const base = box(0.7, 0.35, 0.6, cD); base.position.y = 0.18;
@@ -1189,25 +1220,90 @@ export function buildStunStars() {
   return g;
 }
 
+function darken(hex, amt) {
+  const r = Math.max(0, Math.min(255, ((hex >> 16) & 255) * (1 - amt)));
+  const gr = Math.max(0, Math.min(255, ((hex >> 8) & 255) * (1 - amt)));
+  const b = Math.max(0, Math.min(255, (hex & 255) * (1 - amt)));
+  return (r << 16) | (gr << 8) | b;
+}
+
+// ===== Đế đá voxel — nhiều lớp khối hộp nhỏ xếp chồng, co nhỏ dần xuống đáy =====
+// (thay cho khối nón/trụ trơn — giữ đúng dáng vẻ voxel như phần còn lại của game)
+// Dùng InstancedMesh (2 draw call cố định dù bao nhiêu khối) — vì hàm này được gọi cho
+// TẤT CẢ đảo (14 đảo nền/level + đảo quái + đảo đích), Mesh riêng lẻ từng khối sẽ quá tốn draw call.
+const rockBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+// grassColor (tuỳ chọn): nếu truyền vào, lớp đá TRÊN CÙNG được phủ thêm viền cỏ — dùng ĐÚNG ô lưới của
+// lớp đá đó, phóng to hơn một chút, cao bằng nửa khối đá, tâm đặt ngay mặt trên lớp đá để ăn chồng đúng
+// 50% chiều cao vào khối đá bên dưới (kiểu viền cỏ trùm mép dirt-block trong Minecraft).
+export function buildRockBase(rTop, depth, color, grassColor) {
+  const g = new THREE.Group();
+  const colorAlt = darken(color, 0.14);
+  const layers = Math.max(4, Math.round(depth / (rTop * 0.2 + 0.4)));
+  const mainB = [], altB = [], grassB = [];
+  let curR = rTop;
+  let y = 0.4; // nhô lên — lớp đầu ăn sâu vào khối phía trên, không hở khe nối
+  for (let i = 0; i < layers; i++) {
+    const layerH = (depth / layers) * rand(0.9, 1.2);
+    const cell = Math.max(0.38, curR / 3.8); // lưới dày hơn — nhiều khối hơn hẳn
+    const steps = Math.round(curR / cell) + 1;
+    const jitter = i % 2 === 0 ? 0 : cell * 0.5; // so le từng lớp cho gồ ghề tự nhiên
+    const topY = y + 0.2; // mặt trên danh nghĩa của lớp này (không phụ thuộc bh từng khối)
+    for (let bx = -steps; bx <= steps; bx++) {
+      for (let bz = -steps; bz <= steps; bz++) {
+        const lx = bx * cell + jitter, lz = bz * cell;
+        // lớp trên cùng (i===0) là mặt đứng/va chạm thật — giới hạn độ tràn mép chặt hơn để không vượt quá
+        // bán kính va chạm đăng ký; các lớp đá bên dưới (không ai đứng lên) được phép to/lệch mạnh hơn cho kịch
+        const edgeLimit = i === 0 ? curR + cell * 0.25 : curR + cell * 0.5;
+        if (Math.hypot(lx, lz) > edgeLimit) continue;
+        // trộn khối to/nhỏ lẫn nhau trong CÙNG một lớp (không đồng nhất kích cỡ), nhưng vị trí tâm vẫn
+        // theo đúng lưới của "cell" nên hình dáng tổng thể vẫn thon nhỏ dần xuống đáy như thiết kế
+        const sizeRoll = Math.random();
+        const bigMax = i === 0 ? 1.7 : 2.3;
+        const sizeMul = sizeRoll < 0.16 ? rand(1.4, bigMax) : sizeRoll < 0.34 ? rand(0.5, 0.72) : rand(0.95, 1.3);
+        const bh = layerH * rand(0.7, 1.6) + 0.25; // chênh lệch chiều cao rõ rệt giữa các khối — gồ ghề tự nhiên
+        const bw = cell * sizeMul * rand(0.94, 1.06), bd = cell * sizeMul * rand(0.94, 1.06);
+        (chance(0.35) ? altB : mainB).push({ x: lx, y: topY - bh / 2, z: lz, w: bw, h: bh, d: bd, ry: rand(-0.08, 0.08) });
+        if (i === 0 && grassColor) {
+          const gh = bh * rand(0.35, 0.65); // mỗi khối co dãn ngẫu nhiên, không đồng đều 50%
+          const overhang = rand(1.05, 1.22); // tràn ra ngoài mép lớp đá một chút — không vượt quá bán kính va chạm
+          grassB.push({ x: lx, y: topY, z: lz, w: bw * overhang, h: gh, d: bd * overhang, ry: rand(-0.08, 0.08) });
+        }
+      }
+    }
+    y -= layerH;
+    curR *= rand(0.62, 0.75);
+  }
+  const addInst = (arr, col, tex) => {
+    if (!arr.length) return;
+    const mat = new THREE.MeshLambertMaterial({ color: col, map: tex });
+    const im = new THREE.InstancedMesh(rockBoxGeo, mat, arr.length);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), pos = new THREE.Vector3();
+    arr.forEach((b, i) => {
+      q.setFromEuler(new THREE.Euler(0, b.ry, 0));
+      pos.set(b.x, b.y, b.z);
+      s.set(b.w, b.h, b.d);
+      m4.compose(pos, q, s);
+      im.setMatrixAt(i, m4);
+    });
+    im.castShadow = true; im.receiveShadow = true;
+    g.add(im);
+  };
+  addInst(mainB, color, objTexFor(color));
+  addInst(altB, colorAlt, objTexFor(colorAlt));
+  if (grassColor) addInst(grassB, grassColor, makeBlockTexture('grass', { grain: 0.14, border: 0.2 }));
+  return g;
+}
+
 // ===== Đảo nền trang trí — đế thon dần xuống đáy kiểu đảo bay =====
 export function buildDecorIsland(sizeScale = 1) {
   const g = new THREE.Group();
   const r = rand(3, 7) * sizeScale;
   const groundC = pick([0x8fae88, 0x9db98a, 0x86a878, 0xa2bd90]);
   const rockC = pick([0xb0a090, 0xa89a8a, 0x9a8f80]);
-  // mặt trên phẳng
-  const top = cyl(r, r * 0.96, rand(1, 1.6), groundC, 10);
-  top.position.y = 0.6;
-  g.add(top);
-  // đế đá thu nhỏ dần xuống đáy (2 tầng + chóp nhọn)
-  const mid = cyl(r * 0.8, r * 0.5, rand(1.5, 2.5), rockC, 9);
-  mid.position.y = -0.9;
-  const tipCone = new THREE.Mesh(new THREE.ConeGeometry(r * 0.5, rand(2, 4) * sizeScale, 8),
-    new THREE.MeshLambertMaterial({ color: rockC }));
-  tipCone.rotation.x = Math.PI;
-  tipCone.position.y = -2.2 - rand(0.8, 1.6);
-  tipCone.castShadow = true;
-  g.add(mid, tipCone);
+  // đế đá voxel — nhiều lớp khối hộp thu nhỏ dần xuống đáy, viền cỏ phủ lớp trên cùng (không dùng đĩa tròn trơn nữa)
+  const base = buildRockBase(r * 0.92, rand(4, 6.5) * sizeScale, rockC, groundC);
+  base.position.y = 0.2;
+  g.add(base);
 
   const style = pick(['forest', 'hill', 'barren', 'mixed']);
   const offX = rand(-r * 0.4, r * 0.4), offZ = rand(-r * 0.4, r * 0.4);
@@ -1219,12 +1315,11 @@ export function buildDecorIsland(sizeScale = 1) {
       g.add(t);
     }
   } else if (style === 'hill') {
-    const hill = cyl(r * 0.5, r * 0.65, rand(1.5, 3), groundC, 8);
-    hill.position.set(offX, 1.8, offZ);
-    g.add(hill);
-    if (chance(0.7)) {
+    // bỏ gò đất riêng (khó ghép khối tự nhiên ở kích thước nhỏ) — cây mọc thẳng trên mặt đảo
+    const n = randInt(2, 4);
+    for (let i = 0; i < n; i++) {
       const t = buildTree(rand(0.7, 1.3) * sizeScale);
-      t.position.set(offX, 2.8, offZ);
+      t.position.set(offX + rand(-r * 0.3, r * 0.3), 1.2, offZ + rand(-r * 0.3, r * 0.3));
       g.add(t);
     }
   } else if (style === 'barren') {

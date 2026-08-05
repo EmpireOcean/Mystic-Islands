@@ -76,6 +76,7 @@ export class AudioSys {
       case 'jump':   this.tone(340, 0.18, 'sine', 0.5); this.tone(520, 0.14, 'sine', 0.3, 0.05); break;
       case 'coin':   this.tone(920, 0.1, 'triangle', 0.5); this.tone(1240, 0.16, 'triangle', 0.45, 0.07); break;
       case 'hit':    this.tone(180, 0.12, 'square', 0.35); break;
+      case 'armor':  this.tone(540, 0.05, 'square', 0.4); this.tone(760, 0.07, 'triangle', 0.35, 0.045); break;
       case 'chest':  this.tone(240, 0.1, 'square', 0.4); this.tone(160, 0.14, 'square', 0.3, 0.06); break;
       case 'break':  this.tone(140, 0.25, 'sawtooth', 0.4); this.tone(880, 0.2, 'triangle', 0.3, 0.1); break;
       case 'hurt':   this.tone(140, 0.3, 'sawtooth', 0.5); break;
@@ -92,7 +93,7 @@ export class AudioSys {
   startMusic() {
     this.ensure();
     if (!this.ctx || this.musicTimer) return;
-    // Vòng hợp âm nhẹ nhàng kiểu Ghibli: C – Am – F – G — mỗi ~5 lượt qua hết vòng, thỉnh thoảng chen
+    // Vòng hợp âm nhẹ nhàng: C – Am – F – G — mỗi ~5 lượt qua hết vòng, thỉnh thoảng chen
     // hợp âm biến tấu (thay Am/F) và giai điệu điểm xuyết đổi hình thái (nốt lẻ / 2 nốt / chuông rải /
     // im lặng) thay vì luôn lặp y hệt cùng 1 kiểu, để nghe lâu không bị đều đều nhàm tai
     const mainChords = [

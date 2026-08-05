@@ -1,6 +1,6 @@
 // ===== Lõi game: vòng lặp, vật lý, chiến đấu, AI quái, camera =====
 import * as THREE from 'three';
-import { CFG, fallDamage, orbLoss, rand, randInt } from './config.js';
+import { CFG, fallDamage, orbLoss, rand, randInt, chance } from './config.js';
 import { generateLevel } from './world.js';
 import * as V from './voxel.js';
 
@@ -40,7 +40,7 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 400);
     this.camYaw = 0; this.camPitch = 0.25; this.camDist = 6;
 
-    // ánh sáng vàng ấm kiểu Ghibli
+    // ánh sáng vàng ấm dịu nhẹ
     const hemi = new THREE.HemisphereLight(0xcfe8f5, 0xd9c295, 1.1);
     this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(0xfff0d0, 2.2);
@@ -402,7 +402,12 @@ export class Game {
         const g = randInt(CFG.chest.goldMin, CFG.chest.goldMax);
         this.save.gold += g;
         this.audio.sfx('break');
-        this.events.toast(`🪙 +${g} gold from wooden chest!`);
+        let msg = `🪙 +${g} gold from wooden chest!`;
+        if (this.save.lives < CFG.lives.max && chance(0.05)) {
+          this.save.lives++;
+          msg += ' 💚 +1 life!';
+        }
+        this.events.toast(msg);
       }
     } else {
       const m = best.obj;
@@ -544,6 +549,7 @@ export class Game {
     if (s.armorDur > 0 && s.armorWorn && n > 0) {
       n = Math.max(0, n - CFG.shop.armor.reduce);
       s.armorDur--;
+      this.audio.sfx('armor'); // luôn phát tiếng giáp đỡ đòn — kể cả khi giáp hấp thụ hết, không còn im lặng
       if (s.armorDur === 0) this.events.toast('🛡 Your armor broke!');
     }
     if (n <= 0) { this.events.updateHUD(); return; }
@@ -802,6 +808,50 @@ export class Game {
     }
   }
 
+  // Di chuyển quái theo hướng mong muốn (desiredAng, radian, quy ước atan2(dx,dz)). Quái đi xuyên qua được
+  // đá/cây trang trí (như người chơi hay bị vướng vào — ưu tiên vận động mượt mà hơn thực tế), chỉ còn ràng
+  // buộc qua extraValid (VD không rời khỏi đảo). Nếu vẫn bị chặn (extraValid) LIÊN TỤC một lúc — quét thử
+  // nhiều hướng quanh vòng tròn tìm lối thoát; nếu quét mãi vẫn không được (kẹt cứng thật sự, hiếm) thì sau
+  // một lúc lâu hơn sẽ "nhảy" bừa một hướng ngẫu nhiên để chắc chắn thoát, kèm hiệu ứng nảy lên.
+  monsterStep(m, desiredAng, spd, dt, extraValid) {
+    const valid = (nx, nz) => !extraValid || extraValid(nx, nz);
+    const step = spd * dt;
+    let ang = desiredAng;
+    if (m.stuckT > 0.4) {
+      let found = false;
+      for (let k = 0; k < 12 && !found; k++) {
+        const tryAng = m.escapeSweep + k * (Math.PI / 6);
+        const tx = m.mesh.position.x + Math.sin(tryAng) * step;
+        const tz = m.mesh.position.z + Math.cos(tryAng) * step;
+        if (valid(tx, tz)) { ang = tryAng; found = true; }
+      }
+      m.escapeSweep += 1.1; // lệch pha lần quét sau, tránh dò trúng y hệt hướng vừa thất bại
+      if (!found && m.stuckT > 1.0) {
+        // quét đủ kiểu vẫn không thoát được (kẹt cứng thật sự) — nhảy bừa ra ngoài cho chắc chắn thoát
+        const forceAng = rand(0, Math.PI * 2);
+        m.mesh.position.x += Math.sin(forceAng) * step * 3;
+        m.mesh.position.z += Math.cos(forceAng) * step * 3;
+        m.mesh.rotation.y = forceAng;
+        m.hopT = 0.3;
+        m.stuckT = 0;
+        m.moving = true;
+        return true;
+      }
+    }
+    const nx = m.mesh.position.x + Math.sin(ang) * step;
+    const nz = m.mesh.position.z + Math.cos(ang) * step;
+    if (valid(nx, nz)) {
+      m.mesh.position.x = nx; m.mesh.position.z = nz;
+      m.mesh.rotation.y = ang;
+      m.stuckT = 0;
+      m.moving = true;
+      return true;
+    }
+    m.stuckT += dt;
+    m.mesh.rotation.y = ang;
+    return false;
+  }
+
   // ---------- Hỗ trợ va chạm ----------
   // trả về mặt đứng cao nhất dưới chân trong khoảng [minY, maxY], kèm nguồn
   supportAt(x, z, minY, maxY) {
@@ -1054,21 +1104,10 @@ export class Game {
         }
         continue;
       }
-      if (m.flashT > 0) {
-        m.flashT -= dt;
-        m.mesh.position.y = m.island.y + Math.sin(m.flashT * 40) * 0.06;
-      } else m.mesh.position.y = m.island.y;
-
-      // animation ra đòn: cận chiến chồm tới, tầm xa khựng lại khi bắn
+      m.animT += dt;
+      m.moving = false;
       m.attackAnim = Math.max(0, m.attackAnim - dt);
       m.recoilT = Math.max(0, m.recoilT - dt);
-      if (m.kind === 'melee') {
-        m.mesh.rotation.x = m.attackAnim > 0 ? -Math.sin((1 - m.attackAnim / 0.35) * Math.PI) * 0.55 : 0;
-      } else {
-        m.mesh.rotation.x = m.recoilT > 0 ? Math.sin((m.recoilT / 0.25) * Math.PI) * 0.3 : 0;
-        const sc = m.recoilT > 0 ? 1 + Math.sin((m.recoilT / 0.25) * Math.PI) * 0.12 : 1;
-        m.mesh.scale.setScalar(sc);
-      }
 
       const dx = pl.pos.x - m.mesh.position.x;
       const dz = pl.pos.z - m.mesh.position.z;
@@ -1078,36 +1117,73 @@ export class Game {
 
       if (m.kind === 'melee') {
         m.atkCd = Math.max(0, m.atkCd - dt);
+
+        // đòn đánh: kéo tay/vũ khí ra sau báo hiệu (windup) → vung mạnh ra trước (strike) → thu về.
+        // Trúng đòn đúng lúc tay/vũ khí vươn xa nhất (không phải ngay lúc bắt đầu vung), không chỉ lắc thân.
+        const wArm = m.mesh.userData.weaponArm;
+        if (m.attackWindup > 0) {
+          m.attackWindup = Math.max(0, m.attackWindup - dt);
+          const wp = 1 - m.attackWindup / 0.2; // 0 → 1: đang kéo ra sau dần
+          m.mesh.rotation.x = wp * 0.15;
+          m.mesh.scale.setScalar(1 - wp * 0.06);
+          if (wArm) wArm.rotation.x = wp * 0.9; // tay/vũ khí kéo ra sau chuẩn bị
+          if (m.attackWindup <= 0 && m.attackPending) {
+            m.attackPending = false;
+            m.attackAnim = 0.3;
+            m.attackHit = false;
+          }
+        } else if (m.attackAnim > 0) {
+          const t = 1 - m.attackAnim / 0.3;
+          // vung ra trước rất nhanh (đỉnh ở t≈0.35) rồi thu về từ từ
+          const swing = t < 0.35 ? 0.9 - 1.9 * (t / 0.35) : -1.0 + 1.0 * ((t - 0.35) / 0.65);
+          if (wArm) wArm.rotation.x = swing;
+          m.mesh.rotation.x = -Math.sin(t * Math.PI) * 0.3; // thân phụ hoạ nhẹ, tay/vũ khí mới là chính
+          m.mesh.scale.setScalar(1 + Math.sin(t * Math.PI) * 0.08);
+          if (!m.attackHit && t >= 0.35) {
+            m.attackHit = true;
+            const stillNear = Math.hypot(pl.pos.x - m.mesh.position.x, pl.pos.z - m.mesh.position.z) < 1.6;
+            if (stillNear && this.state === 'play') this.damagePlayer(CFG.monsters.meleeDmg, 'monster');
+          }
+        } else {
+          m.mesh.rotation.x = 0;
+          m.mesh.scale.setScalar(1);
+          if (wArm) wArm.rotation.x = 0;
+        }
+
+        const islandBound = (nx, nz) => Math.hypot(nx - m.island.x, nz - m.island.z) < m.island.r - 0.2;
         if (playerNear && this.state === 'play') {
           // đuổi theo người chơi
           if (distP > 1.1) {
-            const spd = 1.9 * dt / Math.max(distP, 0.01);
-            let nx = m.mesh.position.x + dx * spd;
-            let nz = m.mesh.position.z + dz * spd;
-            // không rời khỏi đảo của nó
-            const dHome = Math.hypot(nx - m.island.x, nz - m.island.z);
-            if (dHome < m.island.r - 0.2) { m.mesh.position.x = nx; m.mesh.position.z = nz; }
+            this.monsterStep(m, Math.atan2(dx, dz), 1.9, dt, islandBound);
+          } else if (m.attackWindup <= 0 && !m.attackPending) {
+            m.mesh.rotation.y = Math.atan2(dx, dz); // đứng yên trong tầm vẫn quay mặt về người chơi
           }
-          m.mesh.rotation.y = Math.atan2(dx, dz);
-          if (distP < 1.35 && m.atkCd <= 0) {
+          if (distP < 1.35 && m.atkCd <= 0 && m.attackWindup <= 0 && !m.attackPending) {
             m.atkCd = 1.2;
-            m.attackAnim = 0.35; // chồm tới vung đòn
-            this.damagePlayer(CFG.monsters.meleeDmg, 'monster');
+            m.attackWindup = 0.2; // báo hiệu trước khi trúng đòn, không mất máu ngay tức khắc
+            m.attackPending = true;
           }
         } else {
-          // lang thang quanh đảo
-          m.wanderA += dt * 0.5;
-          const tx = m.island.x + Math.cos(m.wanderA) * (m.island.r - 1);
-          const tz = m.island.z + Math.sin(m.wanderA) * (m.island.r - 1);
+          // lang thang quanh đảo — bán kính/tốc độ/chiều riêng từng con nên đường đi không giống nhau,
+          // tốc độ góc khớp đúng tốc độ đi thật để mặt luôn xoay theo đúng hướng đang di chuyển
+          const wanderR = Math.max(1, (m.island.r - 1) * m.wanderRFrac);
+          const wspd = m.wanderSpd;
+          m.wanderA += dt * (wspd / wanderR) * m.wanderDir;
+          const tx = m.island.x + Math.cos(m.wanderA) * wanderR;
+          const tz = m.island.z + Math.sin(m.wanderA) * wanderR;
           const wx = tx - m.mesh.position.x, wz = tz - m.mesh.position.z;
           const wd = Math.hypot(wx, wz);
-          if (wd > 0.1) {
-            m.mesh.position.x += wx / wd * 0.7 * dt;
-            m.mesh.position.z += wz / wd * 0.7 * dt;
-            m.mesh.rotation.y = Math.atan2(wx, wz);
-          }
+          if (wd > 0.08) this.monsterStep(m, Math.atan2(wx, wz), wspd, dt, islandBound);
         }
       } else {
+        // animation quái tầm xa: khựng lại + phồng nhẹ khi vừa bắn; pháp sư còn giơ gậy chỉ về hướng bắn
+        m.mesh.rotation.x = m.recoilT > 0 ? Math.sin((m.recoilT / 0.25) * Math.PI) * 0.3 : 0;
+        const sc = m.recoilT > 0 ? 1 + Math.sin((m.recoilT / 0.25) * Math.PI) * 0.12 : 1;
+        m.mesh.scale.setScalar(sc);
+        if (m.mesh.userData.staffArm) {
+          m.mesh.userData.staffArm.rotation.x = m.recoilT > 0 ? -Math.sin((m.recoilT / 0.25) * Math.PI) * 0.9 : 0;
+        }
+
         // quái tầm xa — chỉ bắn liên tục khi người chơi ĐÃ đặt chân lên đảo
         m.burstCd = Math.max(0, m.burstCd - dt);
         const playerOnIsland = Math.hypot(pl.pos.x - m.island.x, pl.pos.z - m.island.z) < m.island.r - 0.2 &&
@@ -1116,11 +1192,22 @@ export class Game {
           const vx = tx - m.mesh.position.x, vz = tz - m.mesh.position.z;
           const vd = Math.hypot(vx, vz);
           if (vd > 0.15) {
-            m.mesh.position.x += vx / vd * spd * dt;
-            m.mesh.position.z += vz / vd * spd * dt;
+            this.monsterStep(m, Math.atan2(vx, vz), spd, dt);
             return false;
           }
           return true;
+        };
+        // hướng bắn có tính cả độ cao (nhắm đúng vị trí người chơi), không chỉ bắn thẳng phương ngang.
+        // QUAN TRỌNG: nhân sin(a)/cos(a) (biên độ ≤1) với khoảng cách ngang thật (distP) trước khi ghép
+        // với chênh lệch độ cao thô (vy) — nếu không, vy (có thể vài đơn vị) sẽ lấn át hẳn hướng ngang khi
+        // chuẩn hoá, khiến đạn bay gần như thẳng đứng thay vì đúng hướng người chơi.
+        const aimDir = (a) => {
+          if (distP < 32 && this.state === 'play') {
+            const vy = (pl.pos.y + 0.8) - (m.mesh.position.y + 0.7);
+            const horiz = Math.max(distP, 0.5);
+            return new THREE.Vector3(Math.sin(a) * horiz, vy, Math.cos(a) * horiz).normalize();
+          }
+          return new THREE.Vector3(Math.sin(a), 0.03, Math.cos(a)).normalize();
         };
 
         if (playerOnIsland && distP < 12 && this.state === 'play') {
@@ -1137,44 +1224,85 @@ export class Game {
             if (m.burstCd <= 0) {
               m.burstCd = 0.3;
               m.burstLeft--;
-              // nếu người chơi lảng vảng gần (trên chuỗi vật thể) thì bắn về phía đó, không thì bắn ra xa
+              // nếu người chơi trong tầm nhìn thì nhắm bắn khá chính xác về phía đó, không thì bắn ra xa
               let a;
-              if (distP < 14 && this.state === 'play') a = Math.atan2(dx, dz) + rand(-0.12, 0.12);
+              if (distP < 32 && this.state === 'play') a = Math.atan2(dx, dz) + rand(-0.05, 0.05);
               else a = m.mesh.rotation.y + rand(-0.3, 0.3);
               m.mesh.rotation.y = a;
-              this.fireProjectile(m, new THREE.Vector3(Math.sin(a), 0.03, Math.cos(a)));
+              this.fireProjectile(m, aimDir(a));
             }
           } else {
             m.mode = 'hide';
             m.idleCd = rand(2.5, 4.5); // thời gian nghỉ bắt buộc giữa các loạt
           }
+        } else if (m.mode === 'toEdge') {
+          // đang ĐI BỘ ra mép đảo để bắn — không dịch chuyển tức thời như trước nữa
+          const arrived = moveTo(m.edgeTarget.x, m.edgeTarget.z, 1.7);
+          if (arrived) {
+            m.mode = 'burst';
+            m.burstLeft = randInt(CFG.monsters.burstMin, CFG.monsters.burstMax);
+            m.burstCd = 0.4;
+            m.mesh.rotation.y = m.edgeTarget.a;
+          }
         } else {
-          // hide: rút vào giữa đảo nghỉ, hết giờ nghỉ mới ra mép bắn loạt mới
+          // hide: rút vào giữa đảo nghỉ, hết giờ nghỉ mới đi bộ ra mép để bắn loạt mới
           m.mode = 'hide';
           moveTo(m.island.x, m.island.z, 1.6);
           m.idleCd -= dt;
           if (m.idleCd <= 0) {
-            m.mode = 'burst';
-            m.burstLeft = randInt(CFG.monsters.burstMin, CFG.monsters.burstMax);
-            m.burstCd = 0.4;
-            // hướng ra mép: về phía người chơi nếu gần, không thì ngẫu nhiên
-            const a = (distP < 14 && this.state === 'play') ? Math.atan2(dx, dz) : rand(0, Math.PI * 2);
-            m.mesh.rotation.y = a;
-            m.mesh.position.x = m.island.x + Math.sin(a) * (m.island.r - 0.8);
-            m.mesh.position.z = m.island.z + Math.cos(a) * (m.island.r - 0.8);
+            // chọn hướng ra mép: về phía người chơi nếu trong tầm nhìn, không thì ngẫu nhiên — rồi ĐI BỘ tới đó
+            const a = (distP < 32 && this.state === 'play') ? Math.atan2(dx, dz) : rand(0, Math.PI * 2);
+            m.edgeTarget = {
+              a,
+              x: m.island.x + Math.sin(a) * (m.island.r - 0.8),
+              z: m.island.z + Math.cos(a) * (m.island.r - 0.8),
+            };
+            m.mode = 'toEdge';
           }
         }
       }
 
+      // đứng đúng độ cao mặt đất tại vị trí hiện tại (bám theo gò đất nếu đang ở trên gò, tránh xuyên qua)
+      const sup = this.supportAt(m.mesh.position.x, m.mesh.position.z, m.island.y - 0.6, m.island.y + 2.5);
+      const groundY = sup ? sup.top : m.island.y;
+      // dáng đi: nảy nhẹ + lắc người khi đang di chuyển, đứng yên thì thôi
+      const bob = m.moving ? Math.abs(Math.sin(m.animT * 9)) * 0.07 : 0;
+      m.mesh.rotation.z = m.moving ? Math.sin(m.animT * 9) * 0.06 : 0;
+      // cú nhảy thoát kẹt — vòng cung nảy lên rồi rơi xuống trong 0.3s
+      const hop = m.hopT > 0 ? Math.sin((0.3 - m.hopT) / 0.3 * Math.PI) * 0.7 : 0;
+      if (m.hopT > 0) m.hopT = Math.max(0, m.hopT - dt);
+      m.mesh.position.y = groundY + bob + hop + (m.flashT > 0 ? Math.sin(m.flashT * 40) * 0.06 : 0);
+      if (m.flashT > 0) m.flashT -= dt;
+
       // thanh máu trên đầu — quay mặt về camera, đổi màu theo lượng máu
       if (m.hpBar) {
         const ratio = Math.max(0, m.hp / m.maxHp);
-        m.hpBar.position.set(m.mesh.position.x, m.island.y + 2.15, m.mesh.position.z);
+        m.hpBar.position.set(m.mesh.position.x, groundY + 2.15, m.mesh.position.z);
         m.hpBar.quaternion.copy(this.camera.quaternion);
         m.hpFg.scale.x = Math.max(0.001, ratio);
         m.hpFg.position.x = -0.4 * (1 - ratio);
         m.hpFg.material.color.setHex(ratio > 0.5 ? 0x6ad86a : ratio > 0.25 ? 0xe8c04a : 0xe05252);
         m.hpBar.visible = m.hp < m.maxHp || distP < 12;
+      }
+    }
+
+    // tránh 2 quái cùng đảo đè lên nhau — đẩy nhẹ ra xa nếu đứng quá sát
+    const monsters = w.monsters;
+    for (let i = 0; i < monsters.length; i++) {
+      const a = monsters[i];
+      if (a.dead) continue;
+      for (let j = i + 1; j < monsters.length; j++) {
+        const b = monsters[j];
+        if (b.dead || a.island.x !== b.island.x || a.island.z !== b.island.z) continue;
+        const ddx = b.mesh.position.x - a.mesh.position.x, ddz = b.mesh.position.z - a.mesh.position.z;
+        const dd = Math.hypot(ddx, ddz);
+        const minSep = 0.85;
+        if (dd > 0.001 && dd < minSep) {
+          const push = (minSep - dd) / 2;
+          const nx = ddx / dd, nz = ddz / dd;
+          a.mesh.position.x -= nx * push; a.mesh.position.z -= nz * push;
+          b.mesh.position.x += nx * push; b.mesh.position.z += nz * push;
+        }
       }
     }
 

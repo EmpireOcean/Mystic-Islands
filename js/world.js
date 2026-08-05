@@ -249,11 +249,15 @@ function buildTerrain(w) {
       (isBeach || isWater || isSandPatch ? sand : grass).push([x, h - 0.5, z]);
     }
     let minN = h;
+    let isEdge = false;
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nh = w.tiles.get(tileKey(x + dx, z + dz)) ?? 0;
-      minN = Math.min(minN, nh);
+      const nk = tileKey(x + dx, z + dz);
+      if (!w.tiles.has(nk)) isEdge = true; // giáp biển xung quanh, không phải ô đảo khác
+      minN = Math.min(minN, w.tiles.get(nk) ?? 0);
     }
-    for (let y = h - 1; y >= Math.max(0, minN - 1); y--) {
+    // viền đảo giáp biển: kéo cột đá xuống ngập hẳn mặt nước, không hở đáy lộ khoảng trống
+    const bottomY = isEdge ? Math.floor(w.seaY) - 1 : Math.max(0, minN - 1);
+    for (let y = h - 1; y >= bottomY; y--) {
       (isRock(k) ? cliff : dirt).push([x, y - 0.5, z]);
     }
   }
@@ -376,7 +380,16 @@ function buildChain(w, level) {
         w.coins.push({ mesh: coin, x: coin.position.x, y: coin.position.y, z: coin.position.z, taken: false, value: 1 });
       } else if (roll < 0.6) {
         const ch = V.buildChest();
-        const ox = rand(-hw * 0.35, hw * 0.35), oz = rand(-hd * 0.35, hd * 0.35);
+        // chỉ 20% cho phép rương rơi gần tâm (có thể chắn đúng điểm hạ cánh, đòi nhảy đôi để vượt qua) —
+        // 80% còn lại đẩy ra rìa vật thể, không chắn đường nhảy chính
+        let ox, oz;
+        if (chance(0.2)) {
+          ox = rand(-hw * 0.35, hw * 0.35); oz = rand(-hd * 0.35, hd * 0.35);
+        } else {
+          const edgeA = rand(0, Math.PI * 2);
+          ox = Math.cos(edgeA) * hw * rand(0.55, 1);
+          oz = Math.sin(edgeA) * hd * rand(0.55, 1);
+        }
         ch.position.set(cx + ox, cy, cz + oz);
         ch.rotation.y = rand(0, Math.PI * 2);
         w.group.add(ch);
@@ -548,29 +561,31 @@ function buildIslandDecor(w) {
 // ---------- Đảo quái: to hơn, có địa hình gò/đá/bụi ----------
 function buildMonsterIsland(w, x, y, z, tier, r) {
   const g = new THREE.Group();
-  const top = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.94, 0.5, 16),
-    new THREE.MeshLambertMaterial({ color: 0x9dc98a }));
-  top.position.y = -0.25;
-  const mid = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.8, r * 0.45, 2, 12),
-    new THREE.MeshLambertMaterial({ color: 0xb0a090 }));
-  mid.position.y = -1.5;
-  const under = new THREE.Mesh(new THREE.ConeGeometry(r * 0.45, 2.5, 10),
-    new THREE.MeshLambertMaterial({ color: 0xa89a8a }));
-  under.rotation.x = Math.PI; under.position.y = -3.7;
-  top.castShadow = mid.castShadow = under.castShadow = true;
-  top.receiveShadow = true;
-  g.add(top, mid, under);
+  // đế đá voxel + viền cỏ phủ lớp trên cùng (không dùng khối trụ tròn nữa)
+  const base = V.buildRockBase(r * 0.9, 4.2, 0xa89a8a, 0x9dc98a);
+  base.position.y = -1.0;
+  g.add(base);
 
-  // địa hình: 2–3 gò đất thấp có thể trèo lên (thêm vào islands để đứng được)
+  // địa hình: 2–3 gò đất thấp có thể trèo lên (thêm vào islands để đứng được) — cụm khối vuông nhỏ, không dùng khối trụ tròn
   for (let i = 0; i < randInt(2, 3); i++) {
     const a = rand(0, Math.PI * 2), d = rand(r * 0.25, r * 0.6);
     const mr = rand(1.0, 1.7), mh = 0.5;
-    const mound = new THREE.Mesh(new THREE.CylinderGeometry(mr, mr * 1.15, mh, 10),
-      new THREE.MeshLambertMaterial({ color: pick([0x9dc98a, 0xa8d494]) }));
-    mound.position.set(Math.cos(a) * d, mh / 2, Math.sin(a) * d);
-    mound.castShadow = mound.receiveShadow = true;
-    g.add(mound);
-    w.islands.push({ x: x + Math.cos(a) * d, z: z + Math.sin(a) * d, y: y + mh, r: mr, tier });
+    const mx0 = Math.cos(a) * d, mz0 = Math.sin(a) * d;
+    const moundC = pick([0x9dc98a, 0xa8d494]);
+    const cell = 0.85;
+    const steps = Math.round(mr / cell) + 1;
+    for (let bx = -steps; bx <= steps; bx++) {
+      for (let bz = -steps; bz <= steps; bz++) {
+        const lx = bx * cell, lz = bz * cell;
+        if (Math.hypot(lx, lz) > mr) continue;
+        const bl = V.box(cell * rand(1.05, 1.3), mh * rand(0.8, 1.2), cell * rand(1.05, 1.3), moundC);
+        bl.position.set(mx0 + lx, mh / 2, mz0 + lz);
+        bl.rotation.y = rand(-0.08, 0.08);
+        g.add(bl);
+      }
+    }
+    // bán kính va chạm nới thêm chút để phủ hết khối to nhất tràn ra mép gò
+    w.islands.push({ x: x + mx0, z: z + mz0, y: y + mh, r: mr + 0.55, tier });
   }
   // đá, bụi, cỏ — đá có va chạm
   for (let i = 0; i < randInt(3, 5); i++) {
@@ -594,13 +609,34 @@ function buildMonsterIsland(w, x, y, z, tier, r) {
   }
   g.position.set(x, y, z);
   w.group.add(g);
-  w.islands.push({ x, z, y, r, tier });
+  // bán kính va chạm nới rộng hơn bán kính đế đá thật — mặt cỏ trên cùng (buildRockBase) tràn mép ra ngoài
+  // đế đá một khoảng, nếu va chạm khít đúng bán kính đế thì đi tới mép cỏ nhìn thấy sẽ bị rơi hụt chân
+  w.islands.push({ x, z, y, r: r * 1.3, tier });
 
-  const n = randInt(1, 2);
+  const n = randInt(1, 3);
+  // quái tầm xa luôn phải đi cùng ít nhất 1 quái cận chiến (không đủ chỗ nếu n=1) — random rồi xáo trộn thứ tự
+  const rangedCount = n >= 2 && chance(0.4) ? randInt(1, n - 1) : 0;
+  const kinds = [];
+  for (let i = 0; i < n; i++) kinds.push(i < rangedCount ? 'ranged' : 'melee');
+  for (let i = kinds.length - 1; i > 0; i--) {
+    const j = randInt(0, i);
+    [kinds[i], kinds[j]] = [kinds[j], kinds[i]];
+  }
+  const placedMonsters = [];
   for (let i = 0; i < n; i++) {
-    const isRanged = chance(0.4);
-    const a = rand(0, Math.PI * 2), rr = rand(0.5, r - 1.2);
-    const mx = x + Math.cos(a) * rr, mz = z + Math.sin(a) * rr;
+    const isRanged = kinds[i] === 'ranged';
+    // né chỗ đã có đá/cây (va chạm) và né các quái vừa đặt trước đó — không để spawn đè/kẹt cứng ngay từ đầu
+    let mx, mz, attempts = 0;
+    do {
+      const a = rand(0, Math.PI * 2), rr = rand(0.5, r - 1.2);
+      mx = x + Math.cos(a) * rr; mz = z + Math.sin(a) * rr;
+      attempts++;
+    } while (
+      attempts < 14 &&
+      (w.colliders.some((c) => Math.hypot(mx - c.x, mz - c.z) < c.r + 0.7) ||
+       placedMonsters.some((p) => Math.hypot(mx - p.x, mz - p.z) < 1.2))
+    );
+    placedMonsters.push({ x: mx, z: mz });
     let mesh, hp;
     if (isRanged) {
       mesh = V.buildMonsterRanged(randInt(0, CFG.monsters.rangedTypes - 1));
@@ -629,6 +665,11 @@ function buildMonsterIsland(w, x, y, z, tier, r) {
       hpBar, hpFg,
       atkCd: 0, burstLeft: 0, burstCd: 0, idleCd: rand(2, 5),
       wanderA: rand(0, Math.PI * 2), flashT: 0, attackAnim: 0, recoilT: 0,
+      attackWindup: 0, attackPending: false, attackHit: false, animT: rand(0, 10), moving: false,
+      // mỗi con có bán kính/tốc độ/chiều lang thang riêng — tránh nhiều quái đi vòng tròn giống hệt nhau
+      wanderRFrac: rand(0.4, 0.85), wanderSpd: rand(0.5, 0.95), wanderDir: chance(0.5) ? 1 : -1,
+      edgeTarget: null,
+      stuckT: 0, escapeSweep: rand(0, Math.PI * 2), hopT: 0,
     });
   }
 }
@@ -641,10 +682,9 @@ function buildGoalIsland(w, x, y, z, heading) {
   const top = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.9, 0.5, 16),
     new THREE.MeshLambertMaterial({ color: 0xa8c98a }));
   top.position.y = -0.25;
-  const under = new THREE.Mesh(new THREE.ConeGeometry(r * 0.85, 3, 14),
-    new THREE.MeshLambertMaterial({ color: 0xb0a090 }));
-  under.rotation.x = Math.PI; under.position.y = -1.9;
-  top.castShadow = under.castShadow = true; top.receiveShadow = true;
+  const under = V.buildRockBase(r * 0.88, 3.3, 0xb0a090);
+  under.position.y = -0.9;
+  top.castShadow = true; top.receiveShadow = true;
   g.add(top, under);
 
   // vòng sáng trắng đặt ĐÚNG TÂM bệ đá — hiệu ứng bay lên xuất phát từ đây
@@ -692,8 +732,10 @@ function buildDecor(w) {
   // LỚP GIỮA: đảo bay đế thon, lơ lửng ở nhiều độ cao
   for (let i = 0; i < 14; i++) {
     const a = rand(0, Math.PI * 2), d = rand(48, 130);
-    const isl = V.buildDecorIsland(rand(0.7, 1.6));
-    isl.position.set(Math.cos(a) * d, w.seaY + rand(0.5, 7), Math.sin(a) * d);
+    const sizeScale = rand(0.7, 1.6);
+    const isl = V.buildDecorIsland(sizeScale);
+    // độ cao lơ lửng tỉ lệ theo kích thước đảo — đảo nhỏ không bay cao vống lên so với mặt biển
+    isl.position.set(Math.cos(a) * d, w.seaY + rand(0.4, 2.2) * sizeScale, Math.sin(a) * d);
     isl.rotation.y = rand(0, Math.PI * 2);
     w.group.add(isl);
   }
