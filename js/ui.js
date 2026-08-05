@@ -196,7 +196,7 @@ export class UI {
       },
       {
         id: 'gun', ico: '🔫', name: 'Gun',
-        stats: s.hasGun ? `Damage ${CFG.shop.gun.dmg} · Ammo left ${s.ammo}` : 'Not owned — buy in Shop',
+        stats: s.hasGun ? `Damage ${CFG.shop.gun.dmg} · Ammo left ${s.ammo} · Hold right mouse button to aim & shoot` : 'Not owned — buy in Shop',
         can: s.hasGun,
       },
     ];
