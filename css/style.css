@@ -26,7 +26,13 @@ body.force-landscape #ui {
   background: rgba(60, 80, 90, 0.25); backdrop-filter: blur(3px);
   z-index:10; /* luôn nổi trên #hud (z-index:5) — trước đây thiếu nên HUD đè lên màn hình thưởng/tạm dừng... */
 }
-#screen-menu { background: transparent; backdrop-filter:none; }
+/* Các màn hình ngoài trận (menu chính + mọi màn con của nó) dùng chung ảnh nền game thay vì làm mờ nền trống phía sau */
+#screen-menu, #screen-char, #screen-scores, #screen-shop, #screen-options, #screen-help, #screen-bye {
+  background:
+    linear-gradient(180deg, rgba(30,40,35,.35) 0%, rgba(30,40,35,.15) 40%, rgba(60,40,20,.45) 100%),
+    url('../img/menu-bg.jpg') center/cover no-repeat;
+  backdrop-filter:none;
+}
 
 /* bảng thua khi bị bạch tuộc: neo lên trên, nền trong để thấy nhân vật choáng váng */
 #screen-death.anchor-top { align-items:flex-start; padding-top:4vh; background:rgba(60,80,90,.12); backdrop-filter:none; }
@@ -86,7 +92,6 @@ h2 { color:#4a6741; margin-bottom:14px; }
 .btn-big { background: linear-gradient(180deg,#cdeab5,#a8d68a); border-color:#84b56a; box-shadow:0 4px 0 #84b56a; color:#3c5a2e; font-size:1.2rem; }
 .btn-big:hover { box-shadow:0 6px 0 #84b56a; }
 .btn-big:active { box-shadow:0 1px 0 #84b56a; }
-.btn-dim { opacity:.8; font-size:.95rem; }
 .btn-back { width:auto; display:inline-block; }
 .row-center { display:flex; gap:12px; justify-content:center; margin-top:14px; flex-wrap:wrap; }
 .row-center .btn { width:auto; }
@@ -254,7 +259,9 @@ body.force-landscape #btn-rotate { transform:rotate(-90deg); }
   .game-title { margin-bottom:0; }
   .game-sub { margin-bottom:12px; }
   .btn { margin:6px 0; padding:10px 20px; }
-  #hud-topright .stat { font-size:.8rem; padding:3px 9px; }
+  /* Thu nhỏ thêm cụm vàng/kim cương/level/mạng — trước đó vẫn to hơn tương đối so với phần còn lại của HUD
+     đã được thu gọn (thanh máu, hàng nút tròn...), làm khung tổng thể mất cân đối. */
+  #hud-topright .stat { font-size:.72rem; padding:2px 8px; border-radius:9px; margin-bottom:4px; }
   #reward-icons { gap:8px; }
   .reward-item { width:84px; }
   /* Vũ khí/túi đồ/tạm dừng: 3 nút TRÒN chỉ hiện icon (ẩn nhãn chữ) — nhãn dài như "Bare Hands"/"Bag (E)"
