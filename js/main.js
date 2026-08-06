@@ -208,8 +208,10 @@ if (ui.isMobile) {
   btnAim.addEventListener('touchcancel', endAim, { passive: false });
 }
 
-// mở khóa âm thanh sau thao tác đầu tiên
-window.addEventListener('pointerdown', () => audio.ensure(), { once: true });
+// Mở khóa/resume âm thanh ở MỌI lần chạm — không dùng {once:true} vì trên di động, AudioContext còn bị
+// trình duyệt tự suspend lại mỗi khi tab chuyển nền hoặc màn hình khoá, cần resume() lại ở lần chạm kế tiếp.
+window.addEventListener('pointerdown', () => audio.ensure());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) audio.ensure(); });
 
 // hook cho việc kiểm thử / gỡ lỗi
 window.__game = game;

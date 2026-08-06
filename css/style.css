@@ -137,6 +137,7 @@ input[type=text], #inp-name, #inp-rename {
 #hud { position:absolute; inset:0; pointer-events:none; z-index:5; }
 #hud button { pointer-events:auto; }
 #hud-topleft { position:absolute; top:12px; left:12px; }
+#hud-topleft #btn-rotate { margin-top:6px; }
 .bar-wrap { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
 .bar-label { font-size:1.1rem; filter:drop-shadow(0 1px 2px rgba(0,0,0,.3)); }
 .bar { width:150px; height:16px; background:rgba(0,0,0,.35); border-radius:9px; overflow:hidden; border:2px solid rgba(255,255,255,.5); }
@@ -166,14 +167,14 @@ input[type=text], #inp-name, #inp-rename {
 }
 
 /* Nút bật/tắt chế độ ép ngang — chỉ hiện trên điện thoại (JS gỡ .hidden trong showHUD).
-   Đặt giữa-trên: #hud-topleft (máu) và #hud-topright (vàng/kim cương/level/mạng) đã chiếm 2 góc trên rồi. */
+   Nằm ngay dưới thanh máu (trong #hud-topleft, xem index.html) thay vì nổi riêng giữa màn hình. */
 #btn-rotate {
-  position:absolute; top:10px; left:50%; transform:translateX(-50%); pointer-events:auto; z-index:6;
-  width:34px; height:34px; border-radius:50%; border:2px solid rgba(255,255,255,.5);
-  background:rgba(255,250,240,.7); color:#5a4a35; font-size:1.1rem; line-height:1;
+  display:block; pointer-events:auto; z-index:6;
+  width:30px; height:30px; border-radius:50%; border:2px solid rgba(255,255,255,.5);
+  background:rgba(255,250,240,.7); color:#5a4a35; font-size:1rem; line-height:1;
 }
 /* tự xoay ngược lại để icon luôn đứng thẳng, dễ bấm để TẮT chế độ này ngay cả khi cả màn hình đã xoay 90° */
-body.force-landscape #btn-rotate { transform:translateX(-50%) rotate(-90deg); }
+body.force-landscape #btn-rotate { transform:rotate(-90deg); }
 
 /* ===== Mobile controls ===== */
 /* Kích thước/khoảng cách dùng clamp(min, %viewport, max) thay vì px cố định — tự co giãn theo mọi bề
@@ -244,12 +245,17 @@ body.force-landscape #btn-rotate { transform:translateX(-50%) rotate(-90deg); }
   #hud-topright .stat { font-size:.8rem; padding:3px 9px; }
   #reward-icons { gap:8px; }
   .reward-item { width:84px; }
-  /* nút chữ nhật nhỏ, MỘT HÀNG NGANG sát đáy màn hình — thay vì chen ngang với joystick/tam giác, đẩy 2 cụm
-     đó lên MỘT TẦNG CAO HƠN (xem #joystick/#mobile-btns bên dưới) nên hàng này được dùng gần hết bề ngang,
-     không cần ép nhỏ thành icon tròn nữa */
-  .btn-mini { padding:6px 10px; font-size:.72rem; border-radius:10px; }
-  #hud-weapon { bottom:max(10px, 2vh); gap:6px; max-width:96vw; flex-wrap:nowrap; }
-  /* đẩy joystick + cụm tam giác lên cao hơn hẳn hàng nút HUD phía dưới — 2 tầng riêng biệt, không còn
-     phải chen chúc cùng một hàng ngang nữa */
-  #joystick, #mobile-btns { bottom:max(92px, 13vh); }
+  /* Vũ khí/túi đồ/tạm dừng: 3 nút TRÒN chỉ hiện icon (ẩn nhãn chữ) — nhãn dài như "Bare Hands"/"Bag (E)"
+     không đủ chỗ trong nút hẹp nên bị wrap 2 dòng, làm cả hàng cao hẳn lên, không còn "gọn" nữa. Icon-only,
+     kích thước đều nhau, MỘT HÀNG NGANG sát đáy màn hình — cùng ngôn ngữ hình khối tròn với joystick/tam
+     giác hành động phía trên để đồng bộ, đồng thời hạ thấp chiều cao hàng để nhường lại không gian màn hình. */
+  #hud-weapon .lbl { display:none; }
+  .btn-mini {
+    width:42px; height:42px; padding:0; display:flex; align-items:center; justify-content:center;
+    border-radius:50%; font-size:1.15rem;
+  }
+  #hud-weapon { bottom:max(10px, 2vh); gap:10px; max-width:96vw; flex-wrap:nowrap; }
+  /* đẩy joystick + cụm tam giác lên cao hơn hẳn hàng nút tròn phía dưới — 2 tầng riêng biệt, không chồng
+     lấn. Tầng này chỉ cần thấp hơn 92px/13vh trước đây vì hàng dưới giờ đã thấp hẳn xuống (icon-only). */
+  #joystick, #mobile-btns { bottom:max(66px, 10vh); }
 }

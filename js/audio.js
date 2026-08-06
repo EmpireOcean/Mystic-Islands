@@ -29,15 +29,21 @@ export class AudioSys {
 
   // Gọi sau thao tác đầu tiên của người dùng (trình duyệt yêu cầu)
   ensure() {
-    if (this.ctx) return;
-    try {
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-      this.musicGain = this.ctx.createGain();
-      this.sfxGain = this.ctx.createGain();
-      this.musicGain.connect(this.ctx.destination);
-      this.sfxGain.connect(this.ctx.destination);
-      this.applyVolumes();
-    } catch { /* không có WebAudio */ }
+    if (!this.ctx) {
+      try {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this.musicGain = this.ctx.createGain();
+        this.sfxGain = this.ctx.createGain();
+        this.musicGain.connect(this.ctx.destination);
+        this.sfxGain.connect(this.ctx.destination);
+        this.applyVolumes();
+      } catch { /* không có WebAudio */ return; }
+    }
+    // Trên di động (đặc biệt Safari iOS), tạo AudioContext trong lúc chạm tay là chưa đủ — context vẫn ở
+    // trạng thái "suspended" cho tới khi resume() được gọi tường minh, nếu không thì mọi âm thanh câm lặng
+    // dù volume đã tối đa. Gọi lại resume() ở MỌI lần chạm (không chỉ lần đầu) vì Safari còn tự suspend lại
+    // context mỗi khi tab bị chuyển nền/khoá màn hình.
+    if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
   }
 
   applyVolumes() {
