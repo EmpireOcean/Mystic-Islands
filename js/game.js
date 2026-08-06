@@ -14,6 +14,7 @@ export class Game {
     this.events = events; // { updateHUD, showReward, hideAll, showDeath, showGameOver, toast }
     this.state = 'idle';  // idle | play | dead | tentacle | reward | beam
     this.isMobile = 'ontouchstart' in window;
+    this.forceLandscape = false; // chế độ ép ngang trên điện thoại (bật/tắt qua nút riêng)
 
     this.initThree();
     this.initInput();
@@ -63,10 +64,38 @@ export class Game {
     this.scene.add(this.dust);
 
     window.addEventListener('resize', () => {
-      this.camera.aspect = window.innerWidth / window.innerHeight;
+      this.camera.aspect = this.logicalWidth() / this.logicalHeight();
       this.camera.updateProjectionMatrix();
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.renderer.setSize(this.logicalWidth(), this.logicalHeight());
     });
+  }
+
+  // ---------- Chế độ "ép ngang" (xoay CSS 90° khi máy đang cầm dọc) ----------
+  // Trình duyệt luôn báo toạ độ chạm (clientX/Y) theo khung hình VẬT LÝ (dọc), bất kể nội dung có bị xoay
+  // bằng CSS hay không — nên khi bật forceLandscape phải tự quy đổi lại toạ độ/phương hướng cho khớp với
+  // những gì người chơi THẤY trên màn hình, nếu không joystick/camera sẽ lệch trục.
+  logicalWidth() { return this.forceLandscape ? window.innerHeight : window.innerWidth; }
+  logicalHeight() { return this.forceLandscape ? window.innerWidth : window.innerHeight; }
+  toLogicalXY(clientX, clientY) {
+    if (!this.forceLandscape) return { x: clientX, y: clientY };
+    return { x: clientY, y: window.innerWidth - clientX };
+  }
+  toLogicalDelta(dx, dy) {
+    if (!this.forceLandscape) return { x: dx, y: dy };
+    return { x: dy, y: -dx };
+  }
+
+  setForceLandscape(on) {
+    this.forceLandscape = on;
+    document.body.classList.toggle('force-landscape', on);
+    if (on && screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(() => {}); // best-effort, im lặng bỏ qua nếu trình duyệt không hỗ trợ
+    } else if (!on && screen.orientation && screen.orientation.unlock) {
+      try { screen.orientation.unlock(); } catch { /* bỏ qua */ }
+    }
+    this.camera.aspect = this.logicalWidth() / this.logicalHeight();
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(this.logicalWidth(), this.logicalHeight());
   }
 
   // ---------- Điều khiển ----------
@@ -134,30 +163,40 @@ export class Game {
     });
 
     // cảm ứng: vuốt nửa phải xoay camera, chụm 2 ngón zoom
+    // passive:false + preventDefault BẮT BUỘC phải có — nếu không, trình duyệt/webview coi thao tác vuốt
+    // này là cử chỉ điều hướng gốc (vuốt lùi trang, kéo-để-làm-mới...) và sẽ thoát game giữa chừng.
     let lastTouch = null, pinchDist = null;
     cv.addEventListener('touchstart', (e) => {
       if (e.touches.length === 2) {
+        e.preventDefault();
         pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-      } else if (e.touches[0].clientX > window.innerWidth / 2) {
+        return;
+      }
+      const p = this.toLogicalXY(e.touches[0].clientX, e.touches[0].clientY);
+      if (p.x > this.logicalWidth() / 2) {
+        e.preventDefault();
         lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY, id: e.touches[0].identifier };
       }
-    }, { passive: true });
+    }, { passive: false });
     cv.addEventListener('touchmove', (e) => {
       if (e.touches.length === 2 && pinchDist !== null) {
+        e.preventDefault();
         const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
         this.camDist = Math.max(3.5, Math.min(10, this.camDist - (d - pinchDist) * 0.02));
         pinchDist = d;
         return;
       }
       if (!lastTouch) return;
+      e.preventDefault();
       for (const t of e.touches) {
         if (t.identifier === lastTouch.id) {
-          this.camYaw -= (t.clientX - lastTouch.x) * 0.006;
-          this.camPitch = Math.max(-0.5, Math.min(1.2, this.camPitch + (t.clientY - lastTouch.y) * 0.005));
+          const delta = this.toLogicalDelta(t.clientX - lastTouch.x, t.clientY - lastTouch.y);
+          this.camYaw -= delta.x * 0.006;
+          this.camPitch = Math.max(-0.5, Math.min(1.2, this.camPitch + delta.y * 0.005));
           lastTouch.x = t.clientX; lastTouch.y = t.clientY;
         }
       }
-    }, { passive: true });
+    }, { passive: false });
     cv.addEventListener('touchend', (e) => {
       if (e.touches.length < 2) pinchDist = null;
       if (e.touches.length === 0) lastTouch = null;

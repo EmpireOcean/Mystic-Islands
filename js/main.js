@@ -168,12 +168,13 @@ $('btn-over-ok').onclick = () => {
 
 // ---------- Nút cảm ứng ----------
 if (ui.isMobile) {
-  ui.initJoystick(game.moveVec);
+  ui.initJoystick(game.moveVec, game);
   const bind = (id, fn) => {
     $(id).addEventListener('touchstart', (e) => { e.preventDefault(); fn(); }, { passive: false });
   };
   bind('btn-m-jump', () => game.tryJump());
   bind('btn-m-attack', () => game.attack());
+  bind('btn-rotate', () => game.setForceLandscape(!game.forceLandscape));
   // nút ngắm: giữ rồi KÉO ngón tay (như joystick) để xoay hướng ngắm chính xác, thả ra thì tắt
   const btnAim = $('btn-m-aim');
   let aimTouch = null;
@@ -188,9 +189,10 @@ if (ui.isMobile) {
     e.preventDefault();
     for (const t of e.touches) {
       if (t.identifier !== aimTouch.id) continue;
-      game.camYaw -= (t.clientX - aimTouch.x) * 0.003;
+      const d = game.toLogicalDelta(t.clientX - aimTouch.x, t.clientY - aimTouch.y);
+      game.camYaw -= d.x * 0.003;
       // kéo lên/xuống đổi góc ngắm dọc (aimPitch riêng), không đụng camPitch của camera quỹ đạo
-      game.aimPitch = Math.max(-1.0, Math.min(1.0, game.aimPitch - (t.clientY - aimTouch.y) * 0.0022));
+      game.aimPitch = Math.max(-1.0, Math.min(1.0, game.aimPitch - d.y * 0.0022));
       aimTouch.x = t.clientX; aimTouch.y = t.clientY;
     }
   }, { passive: false });

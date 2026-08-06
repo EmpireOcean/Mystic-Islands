@@ -28,6 +28,7 @@ export class UI {
     if (this.isMobile) {
       $('joystick').classList.remove('hidden');
       $('mobile-btns').classList.remove('hidden');
+      $('btn-rotate').classList.remove('hidden');
     }
   }
 
@@ -338,7 +339,7 @@ export class UI {
   }
 
   // ---------- Joystick điện thoại ----------
-  initJoystick(moveVec) {
+  initJoystick(moveVec, game) {
     const base = $('joy-base'), stick = $('joy-stick');
     let touchId = null;
     const center = () => {
@@ -347,16 +348,22 @@ export class UI {
     };
     const onMove = (t) => {
       const c = center();
+      // núm joystick di chuyển theo đúng toạ độ VẬT LÝ (khớp CSS %, tự co giãn theo kích thước joy-base
+      // thực tế thay vì trừ cứng "31px" như trước — sai lệch khi joy-base co nhỏ trên máy màn hình hẹp)
+      const restOffset = base.clientWidth / 2 - stick.clientWidth / 2;
+      const maxD = base.clientWidth * 0.36;
       let dx = t.clientX - c.x, dy = t.clientY - c.y;
-      const d = Math.hypot(dx, dy), max = 40;
-      if (d > max) { dx *= max / d; dy *= max / d; }
-      stick.style.left = `${31 + dx}px`;
-      stick.style.top = `${31 + dy}px`;
-      moveVec.x = dx / max;
-      moveVec.z = -dy / max;
+      const d = Math.hypot(dx, dy);
+      if (d > maxD) { dx *= maxD / d; dy *= maxD / d; }
+      stick.style.left = `${restOffset + dx}px`;
+      stick.style.top = `${restOffset + dy}px`;
+      // hướng di chuyển LOGIC thì quy đổi theo chế độ ép ngang (nếu bật) — khác với vị trí núm ở trên
+      const logical = game.toLogicalDelta(dx, dy);
+      moveVec.x = logical.x / maxD;
+      moveVec.z = -logical.y / maxD;
     };
     const reset = () => {
-      stick.style.left = '31px'; stick.style.top = '31px';
+      stick.style.left = ''; stick.style.top = ''; // bỏ inline style, quay lại vị trí giữa mặc định theo CSS
       moveVec.x = 0; moveVec.z = 0; touchId = null;
     };
     $('joystick').addEventListener('touchstart', (e) => {
