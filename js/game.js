@@ -15,6 +15,7 @@ export class Game {
     this.state = 'idle';  // idle | play | dead | tentacle | reward | beam
     this.isMobile = 'ontouchstart' in window;
     this.forceLandscape = false; // chế độ ép ngang trên điện thoại (bật/tắt qua nút riêng)
+    this.joystickTouchId = null; // ID ngón tay đang giữ joystick — set/clear bởi ui.js initJoystick()
 
     this.initThree();
     this.initInput();
@@ -165,30 +166,37 @@ export class Game {
     // cảm ứng: vuốt nửa phải xoay camera, chụm 2 ngón zoom
     // passive:false + preventDefault BẮT BUỘC phải có — nếu không, trình duyệt/webview coi thao tác vuốt
     // này là cử chỉ điều hướng gốc (vuốt lùi trang, kéo-để-làm-mới...) và sẽ thoát game giữa chừng.
+    // QUAN TRỌNG: e.touches gồm CẢ ngón đang giữ joystick (chạm trên #joystick, một phần tử khác hẳn canvas)
+    // — phải loại bỏ ngón đó trước khi đếm số điểm chạm, nếu không vừa di chuyển (giữ joystick) vừa vuốt 1
+    // ngón để xoay camera sẽ bị hiểu nhầm thành 2 ngón chụm zoom.
+    const otherTouches = (e) => [...e.touches].filter((t) => t.identifier !== this.joystickTouchId);
     let lastTouch = null, pinchDist = null;
     cv.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) {
+      const touches = otherTouches(e);
+      if (touches.length === 2) {
         e.preventDefault();
-        pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        pinchDist = Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
         return;
       }
-      const p = this.toLogicalXY(e.touches[0].clientX, e.touches[0].clientY);
+      if (touches.length !== 1) return;
+      const p = this.toLogicalXY(touches[0].clientX, touches[0].clientY);
       if (p.x > this.logicalWidth() / 2) {
         e.preventDefault();
-        lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY, id: e.touches[0].identifier };
+        lastTouch = { x: touches[0].clientX, y: touches[0].clientY, id: touches[0].identifier };
       }
     }, { passive: false });
     cv.addEventListener('touchmove', (e) => {
-      if (e.touches.length === 2 && pinchDist !== null) {
+      const touches = otherTouches(e);
+      if (touches.length === 2 && pinchDist !== null) {
         e.preventDefault();
-        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        const d = Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
         this.camDist = Math.max(3.5, Math.min(10, this.camDist - (d - pinchDist) * 0.02));
         pinchDist = d;
         return;
       }
       if (!lastTouch) return;
       e.preventDefault();
-      for (const t of e.touches) {
+      for (const t of touches) {
         if (t.identifier === lastTouch.id) {
           const delta = this.toLogicalDelta(t.clientX - lastTouch.x, t.clientY - lastTouch.y);
           this.camYaw -= delta.x * 0.006;
@@ -198,8 +206,9 @@ export class Game {
       }
     }, { passive: false });
     cv.addEventListener('touchend', (e) => {
-      if (e.touches.length < 2) pinchDist = null;
-      if (e.touches.length === 0) lastTouch = null;
+      const touches = otherTouches(e);
+      if (touches.length < 2) pinchDist = null;
+      if (touches.length === 0) lastTouch = null;
     });
   }
 
@@ -357,7 +366,12 @@ export class Game {
     pl.attackCd = 0.45;
     pl.attackDur = this.weapon === 'sword' ? 0.5 : 0.28;
     pl.attackAnim = pl.attackDur;
-    pl.yaw = this.camYaw;
+    // Trên PC, nhân vật quay mặt theo đúng hướng camera lúc ra đòn (chuột xoay camera nhanh/chính xác nên
+    // không thấy vướng). Trên điện thoại thì khác: joystick (di chuyển) và vuốt xoay camera là 2 thao tác
+    // TÁCH RỜI nhau — nếu vẫn bắt quay mặt theo camera mỗi lần đánh, người chơi phải vuốt canh lại hướng
+    // camera trước mỗi đòn, rất khó thao tác. Nên trên di động: đánh thẳng theo hướng đang đứng (đã quay
+    // sẵn theo hướng di chuyển), CHỈ theo camera khi đang giữ nút ngắm (aiming — ngắm chính xác, ví dụ bắn súng).
+    if (!this.isMobile || this.aiming) pl.yaw = this.camYaw;
     if (this.weapon === 'sword') {
       this.slashDir = -(this.slashDir || 1); // luân phiên chém chéo trái/phải
     }
@@ -404,7 +418,10 @@ export class Game {
   // tìm mục tiêu (rương / quái) trong tầm + góc nhìn; trả về true nếu trúng
   hitScan(range, angleTol, dmg) {
     const pl = this.player;
-    const fwd = new THREE.Vector3(Math.sin(this.camYaw), 0, Math.cos(this.camYaw));
+    // dùng pl.yaw (hướng nhân vật ĐANG quay mặt) chứ không phải camYaw trực tiếp — 2 giá trị này chỉ chắc
+    // chắn khớp nhau khi attack() vừa đồng bộ (xem giải thích ở đó); nếu hitScan tự ý dùng camYaw riêng thì
+    // trên di động nhân vật sẽ vung kiếm một hướng nhưng trúng đòn theo hướng khác (camera), rất vô lý.
+    const fwd = new THREE.Vector3(Math.sin(pl.yaw), 0, Math.cos(pl.yaw));
     const from = pl.pos.clone(); from.y += 0.9;
     let best = null, bestD = range;
 
@@ -441,7 +458,7 @@ export class Game {
         const g = randInt(CFG.chest.goldMin, CFG.chest.goldMax);
         this.save.gold += g;
         this.audio.sfx('break');
-        let msg = `🪙 +${g} gold from wooden chest!`;
+        let msg = `🟡 +${g} gold from wooden chest!`;
         if (this.save.lives < CFG.lives.max && chance(0.05)) {
           this.save.lives++;
           msg += ' 💚 +1 life!';
@@ -456,7 +473,7 @@ export class Game {
       if (m.hp <= 0) {
         m.dead = true;
         const g = randInt(CFG.monsters.goldMin, CFG.monsters.goldMax);
-        if (g > 0) { this.save.gold += g; this.events.toast(`🪙 +${g} gold from monster!`); this.audio.sfx('coin'); }
+        if (g > 0) { this.save.gold += g; this.events.toast(`🟡 +${g} gold from monster!`); this.audio.sfx('coin'); }
       }
     }
     this.events.updateHUD();

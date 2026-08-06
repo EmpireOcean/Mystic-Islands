@@ -115,6 +115,8 @@ $('btn-options-back').onclick = () => {
 };
 $('vol-music').oninput = (e) => { save.musicVol = e.target.value / 100; audio.applyVolumes(); persist(save); };
 $('vol-sfx').oninput = (e) => { save.sfxVol = e.target.value / 100; audio.applyVolumes(); persist(save); };
+$('btn-help').onclick = () => { audio.sfx('click'); ui.showScreen('screen-help'); };
+$('btn-help-back').onclick = () => { audio.sfx('click'); ui.showScreen('screen-options'); };
 
 // ---------- Trong game ----------
 $('btn-weapon').onclick = () => game.cycleWeapon();

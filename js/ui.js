@@ -91,7 +91,7 @@ export class UI {
       const medal = ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
       div.innerHTML = `
         <div class="score-rank">${medal}</div>
-        <div class="score-name">${r.name}${r.me && s.name ? ' (you)' : ''}<div class="score-sub">🪙 ${r.gold} · 💎 ${r.dia}</div></div>
+        <div class="score-name">${r.name}${r.me && s.name ? ' (you)' : ''}<div class="score-sub">🟡 ${r.gold} · 💎 ${r.dia}</div></div>
         <div class="score-level">Level ${r.level}</div>`;
       list.appendChild(div);
     });
@@ -100,7 +100,7 @@ export class UI {
   // ---------- Shop ----------
   renderShop(onBuy) {
     const s = this.save;
-    $('shop-balance').innerHTML = `<span>🪙 ${s.gold} Gold</span><span>💎 ${s.diamonds} Diamonds</span>`;
+    $('shop-balance').innerHTML = `<span>🟡 ${s.gold} Gold</span><span>💎 ${s.diamonds} Diamonds</span>`;
     const items = [
       {
         ico: '🛡', name: 'Armor',
@@ -108,8 +108,8 @@ export class UI {
           (s.armorDur > 0 ? ` · Current: ${s.armorDur}/${CFG.shop.armor.maxDur} durability` : ` · Durability ${CFG.shop.armor.dur}`),
         // đã có sẵn giáp trên người: mua thêm là CỘNG DỒN +dur độ bền (không mua ra cái giáp thứ 2), tối đa maxDur
         label: s.armorDur >= CFG.shop.armor.maxDur ? 'Durability maxed'
-          : s.armorDur > 0 ? `Reinforce +${CFG.shop.armor.dur} (${CFG.shop.armor.price} 🪙)`
-          : `Buy ${CFG.shop.armor.price} 🪙`,
+          : s.armorDur > 0 ? `Reinforce +${CFG.shop.armor.dur} (${CFG.shop.armor.price} 🟡)`
+          : `Buy ${CFG.shop.armor.price} 🟡`,
         can: s.armorDur < CFG.shop.armor.maxDur && s.gold >= CFG.shop.armor.price,
         buy: () => {
           s.gold -= CFG.shop.armor.price;
@@ -124,17 +124,17 @@ export class UI {
       {
         ico: '🗡', name: 'Sword', desc: `Damage ${CFG.shop.sword.dmg} · Durability ${CFG.shop.sword.dur}` +
           (s.swordDur > 0 ? ` · Current: ${s.swordDur} durability` : ''),
-        price: `${CFG.shop.sword.price} 🪙`, can: s.gold >= CFG.shop.sword.price,
+        price: `${CFG.shop.sword.price} 🟡`, can: s.gold >= CFG.shop.sword.price,
         buy: () => { s.gold -= CFG.shop.sword.price; s.swordDur = CFG.shop.sword.dur; },
       },
       {
         ico: '🔫', name: 'Gun', desc: `Damage ${CFG.shop.gun.dmg} · Requires ammo` + (s.hasGun ? ' · ✔ Owned' : ''),
-        price: s.hasGun ? '—' : `${CFG.shop.gun.price} 🪙`, can: !s.hasGun && s.gold >= CFG.shop.gun.price,
+        price: s.hasGun ? '—' : `${CFG.shop.gun.price} 🟡`, can: !s.hasGun && s.gold >= CFG.shop.gun.price,
         buy: () => { s.gold -= CFG.shop.gun.price; s.hasGun = true; },
       },
       {
         ico: '🥏', name: 'Ammo ×5', desc: `Each shot uses 1 round · Current: ${s.ammo} rounds`,
-        price: `${CFG.shop.ammo.price * 5} 🪙`, can: s.gold >= CFG.shop.ammo.price * 5,
+        price: `${CFG.shop.ammo.price * 5} 🟡`, can: s.gold >= CFG.shop.ammo.price * 5,
         buy: () => { s.gold -= CFG.shop.ammo.price * 5; s.ammo += 5; },
       },
       {
@@ -241,7 +241,7 @@ export class UI {
       s.orbPoints > 0 ? 'equipped' : '');
 
     addSep('— Assets —');
-    addRow(`<span>🪙</span><div class="bag-info"><span>Gold</span></div><span>${s.gold}</span>`);
+    addRow(`<span>🟡</span><div class="bag-info"><span>Gold</span></div><span>${s.gold}</span>`);
     addRow(`<span>💎</span><div class="bag-info"><span>Diamonds</span></div><span>${s.diamonds}</span>`);
     addRow(`<span>💚</span><div class="bag-info"><span>Lives</span></div><span>${s.lives}</span>`);
 
@@ -365,10 +365,12 @@ export class UI {
     const reset = () => {
       stick.style.left = ''; stick.style.top = ''; // bỏ inline style, quay lại vị trí giữa mặc định theo CSS
       moveVec.x = 0; moveVec.z = 0; touchId = null;
+      game.joystickTouchId = null; // báo cho canvas biết ngón này đã thả, không còn cần loại trừ nữa
     };
     $('joystick').addEventListener('touchstart', (e) => {
       e.preventDefault();
       touchId = e.changedTouches[0].identifier;
+      game.joystickTouchId = touchId; // để canvas (xoay camera/zoom) loại trừ ngón này khi đếm số điểm chạm
       onMove(e.changedTouches[0]);
     }, { passive: false });
     $('joystick').addEventListener('touchmove', (e) => {

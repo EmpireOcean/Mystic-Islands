@@ -71,7 +71,45 @@
       <div class="opt-row"><label>🎵 Music</label><input type="range" id="vol-music" min="0" max="100"></div>
       <div class="opt-row"><label>🔊 Sound Effects</label><input type="range" id="vol-sfx" min="0" max="100"></div>
       <div class="opt-row"><label>✏ Rename</label><input id="inp-rename" maxlength="16"></div>
+      <div class="row-center"><button class="btn" id="btn-help">❓ How to Play</button></div>
       <div class="row-center"><button class="btn btn-back" id="btn-options-back">← Back</button></div>
+    </div>
+  </div>
+
+  <!-- ===== HƯỚNG DẪN ĐIỀU KHIỂN ===== -->
+  <div class="screen hidden" id="screen-help">
+    <div class="panel panel-wide help-panel">
+      <h2>❓ How to Play</h2>
+      <div class="help-cols">
+        <div class="help-col">
+          <h3>🖥 Desktop</h3>
+          <ul>
+            <li><b>WASD</b> — Move</li>
+            <li><b>Mouse</b> — Look around</li>
+            <li><b>Space</b> — Jump</li>
+            <li><b>Left click</b> — Attack</li>
+            <li><b>Right click (hold, with gun)</b> — Aim</li>
+            <li><b>Scroll wheel</b> — Zoom camera</li>
+            <li><b>1 / 2 / 3</b> — Switch weapon (fist / sword / gun)</li>
+            <li><b>E</b> — Open bag</li>
+            <li><b>Esc / P</b> — Pause</li>
+          </ul>
+        </div>
+        <div class="help-col">
+          <h3>📱 Mobile</h3>
+          <ul>
+            <li><b>Joystick (bottom-left)</b> — Move</li>
+            <li><b>Drag right half of screen</b> — Look around</li>
+            <li><b>Pinch with 2 fingers</b> — Zoom camera</li>
+            <li><b>⤒ Jump / ⚔ Attack</b> — Bottom-right buttons</li>
+            <li><b>🎯 Aim (hold + drag)</b> — Precise aim, e.g. gun</li>
+            <li><b>⟳ Top button</b> — Toggle landscape mode</li>
+            <li><b>🎒 Bag</b> — Open bag</li>
+          </ul>
+        </div>
+      </div>
+      <p class="hint">Tip: fight monsters, break wooden chests for gold, and reach the goal island to level up!</p>
+      <div class="row-center"><button class="btn btn-back" id="btn-help-back">← Back</button></div>
     </div>
   </div>
 
@@ -83,7 +121,7 @@
       <div id="hud-warning" class="hidden"></div>
     </div>
     <div id="hud-topright">
-      <div class="stat">🪙 <span id="hud-gold">0</span></div>
+      <div class="stat">🟡 <span id="hud-gold">0</span></div>
       <div class="stat">💎 <span id="hud-diamond">0</span></div>
       <div class="stat">⛰ Level <span id="hud-level">1</span></div>
       <div class="stat">💚 <span id="hud-lives">1</span> lives</div>
@@ -134,7 +172,7 @@
     <div class="panel reward-panel">
       <h2>✨ Level Complete!</h2>
       <div id="reward-icons">
-        <div class="reward-item"><div class="reward-ico">🪙</div><div class="reward-txt" id="reward-gold">+1 Gold</div></div>
+        <div class="reward-item"><div class="reward-ico">🟡</div><div class="reward-txt" id="reward-gold">+1 Gold</div></div>
         <div class="reward-item"><div class="reward-ico">💎</div><div class="reward-txt">+1 Diamond</div></div>
         <div class="reward-item"><div class="reward-ico">🍀</div><div class="reward-txt">+1 Luck</div><div class="reward-sub">REAL LIFE</div></div>
       </div>

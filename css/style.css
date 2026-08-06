@@ -52,6 +52,20 @@ body.force-landscape #ui {
 h2 { color:#4a6741; margin-bottom:14px; }
 .hint { color:#8a9a7b; font-size:.9rem; margin:8px 0; }
 
+/* ===== Hướng dẫn điều khiển ===== */
+.help-panel { text-align:left; }
+.help-panel h2 { text-align:center; }
+.help-cols { display:flex; gap:24px; margin:10px 0; }
+.help-col { flex:1; min-width:0; }
+.help-col h3 { color:#4a6741; font-size:1rem; margin-bottom:8px; }
+.help-col ul { list-style:none; }
+.help-col li { padding:6px 0; border-bottom:1px solid #eee0c5; color:#5a4a35; font-size:.9rem; line-height:1.4; }
+.help-col li:last-child { border-bottom:none; }
+.help-panel .hint { text-align:center; }
+@media (max-width:600px) {
+  .help-cols { flex-direction:column; gap:4px; }
+}
+
 /* ===== Nút ===== */
 .btn {
   display:block; width:100%; margin:8px 0; padding:12px 20px;
@@ -151,14 +165,15 @@ input[type=text], #inp-name, #inp-rename {
   color:#fff; font-size:1.4rem; text-shadow:0 1px 4px rgba(0,0,0,.6);
 }
 
-/* Nút bật/tắt chế độ ép ngang — chỉ hiện trên điện thoại (JS gỡ .hidden trong showHUD) */
+/* Nút bật/tắt chế độ ép ngang — chỉ hiện trên điện thoại (JS gỡ .hidden trong showHUD).
+   Đặt giữa-trên: #hud-topleft (máu) và #hud-topright (vàng/kim cương/level/mạng) đã chiếm 2 góc trên rồi. */
 #btn-rotate {
-  position:absolute; top:10px; right:10px; pointer-events:auto; z-index:6;
-  width:36px; height:36px; border-radius:50%; border:2px solid rgba(255,255,255,.5);
-  background:rgba(255,250,240,.7); color:#5a4a35; font-size:1.15rem; line-height:1;
+  position:absolute; top:10px; left:50%; transform:translateX(-50%); pointer-events:auto; z-index:6;
+  width:34px; height:34px; border-radius:50%; border:2px solid rgba(255,255,255,.5);
+  background:rgba(255,250,240,.7); color:#5a4a35; font-size:1.1rem; line-height:1;
 }
 /* tự xoay ngược lại để icon luôn đứng thẳng, dễ bấm để TẮT chế độ này ngay cả khi cả màn hình đã xoay 90° */
-body.force-landscape #btn-rotate { transform:rotate(-90deg); }
+body.force-landscape #btn-rotate { transform:translateX(-50%) rotate(-90deg); }
 
 /* ===== Mobile controls ===== */
 /* Kích thước/khoảng cách dùng clamp(min, %viewport, max) thay vì px cố định — tự co giãn theo mọi bề
@@ -174,17 +189,19 @@ body.force-landscape #btn-rotate { transform:rotate(-90deg); }
   width:44%; height:44%; border-radius:50%; background:rgba(255,255,255,.6);
   position:absolute; left:28%; top:28%;
 }
-/* Xếp hình tam giác (Nhảy trên, Ngắm dưới-trái, Đánh dưới-phải) — vừa tầm ngón cái, thay vì một hàng ngang */
+/* Xếp hình tam giác (Nhảy trên, Ngắm dưới-trái, Đánh dưới-phải) — 3 nút gần sát nhau, vừa tầm ngón cái */
 #mobile-btns {
-  position:absolute; bottom:max(20px, 3vh); right:max(8px, 2vw);
-  width:clamp(140px, 38vw, 195px); height:clamp(120px, 32vw, 165px);
+  position:absolute; bottom:max(20px, 3vh); right:max(6px, 1.5vw);
+  width:clamp(96px, 24vw, 132px); height:clamp(80px, 21vw, 112px);
   pointer-events:none;
 }
 #mobile-btns button {
-  position:absolute; width:clamp(46px, 13vw, 60px); height:clamp(46px, 13vw, 60px); border-radius:50%;
+  position:absolute; width:clamp(42px, 12vw, 56px); height:clamp(42px, 12vw, 56px); border-radius:50%;
   border:2px solid rgba(255,255,255,.5); background:rgba(255,250,240,.55);
   font-size:clamp(1.05rem, 3.6vw, 1.4rem); color:#5a4a35; pointer-events:auto;
 }
+/* khung #mobile-btns đã được thu nhỏ sát khít 2 nút (xem width ở trên) nên chỉ cần đặt sát mép khung —
+   không kéo thêm vào trong nữa, tránh chồng lên nhau ở màn hình rất hẹp */
 #btn-m-jump { top:0; left:50%; transform:translateX(-50%); }
 #btn-m-aim { bottom:0; left:0; }
 #btn-m-attack { bottom:0; right:0; }
@@ -227,7 +244,9 @@ body.force-landscape #btn-rotate { transform:rotate(-90deg); }
   #hud-topright .stat { font-size:.8rem; padding:3px 9px; }
   #reward-icons { gap:8px; }
   .reward-item { width:84px; }
-  /* nút HUD thu nhỏ lại, nằm giữa phía dưới — nhường chỗ cho joystick/cụm nút thao tác bên dưới */
+  /* nút HUD thu nhỏ lại, nằm CÙNG hàng đáy màn hình với joystick (trái) và cụm tam giác (phải), không đè lên nhau */
   .btn-mini { padding:clamp(6px,2vw,9px) clamp(8px,3vw,13px); font-size:clamp(.7rem,2.8vw,.85rem); border-radius:13px; }
-  #hud-weapon { bottom:max(128px, 20vh); gap:clamp(5px,1.5vw,9px); }
+  /* max-width hẹp buộc mỗi nút xuống 1 dòng riêng (xếp dọc, 3 hàng) — đủ hẹp để không đè lên joystick/tam giác
+     hai bên khi cùng nằm sát đáy màn hình */
+  #hud-weapon { bottom:max(20px, 3vh); gap:clamp(3px,1vw,6px); max-width:min(30vw, 112px); }
 }
