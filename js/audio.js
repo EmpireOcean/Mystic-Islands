@@ -44,6 +44,18 @@ export class AudioSys {
     // dù volume đã tối đa. Gọi lại resume() ở MỌI lần chạm (không chỉ lần đầu) vì Safari còn tự suspend lại
     // context mỗi khi tab bị chuyển nền/khoá màn hình.
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+    // Bug kinh điển của Safari iOS: resume() báo "running" nhưng phần cứng âm thanh vẫn câm cho tới khi có
+    // một AudioBufferSourceNode.start() thật sự chạy trong đúng lần chạm đầu tiên (oscillator qua GainNode
+    // không đủ để "mở khoá" trên một số bản iOS). Phát 1 buffer câm (1 sample) một lần duy nhất để chắc chắn.
+    if (!this.unlocked) {
+      this.unlocked = true;
+      try {
+        const src = this.ctx.createBufferSource();
+        src.buffer = this.ctx.createBuffer(1, 1, 22050);
+        src.connect(this.ctx.destination);
+        src.start(0);
+      } catch { /* bỏ qua */ }
+    }
   }
 
   applyVolumes() {

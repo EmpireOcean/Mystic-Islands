@@ -38,8 +38,14 @@ body.force-landscape #ui {
   box-shadow: 0 12px 40px rgba(80, 60, 30, 0.25);
   text-align:center;
   max-width: min(92vw, 480px);
-  max-height: 88vh; overflow-y:auto;
+  max-height: 88vh;
+  /* Cột flex: phần danh sách bên trong đánh dấu .panel-scroll (vd #score-list) sẽ tự co lại và cuộn riêng
+     TRƯỚC, nhường chỗ cho tiêu đề + nút Back luôn đứng yên/luôn thấy được — trước đây overflow-y:auto cuộn
+     cả khung khiến nút Back bị đẩy ra ngoài, phải vuốt mới thấy trên máy màn hình ngắn (vd iPhone 8).
+     overflow-y:auto vẫn giữ trên khung ngoài làm lưới an toàn cho các màn không có .panel-scroll. */
+  display:flex; flex-direction:column; overflow-y:auto;
 }
+.panel-scroll { flex:1 1 auto; min-height:0; overflow-y:auto; }
 .panel-wide { max-width: min(94vw, 560px); }
 
 .game-title {
@@ -242,6 +248,12 @@ body.force-landscape #btn-rotate { transform:rotate(-90deg); }
 @media (max-width:600px) {
   .menu-panel, .panel { padding:20px 18px; border-radius:18px; }
   .bar { width:110px; }
+  /* Trên máy màn hình ngắn (vd iPhone 8, 667px cao), 5 nút màn hình chính + tiêu đề dùng khoảng cách cỡ
+     desktop dễ vượt quá chiều cao khung, khiến nút cuối (End game) bị đẩy sát mép/trông như hụt chiều cao
+     so với các nút bên trên. Thu gọn margin/padding — mọi nút giờ cùng cỡ, không còn nút nào bị "đè" lại. */
+  .game-title { margin-bottom:0; }
+  .game-sub { margin-bottom:12px; }
+  .btn { margin:6px 0; padding:10px 20px; }
   #hud-topright .stat { font-size:.8rem; padding:3px 9px; }
   #reward-icons { gap:8px; }
   .reward-item { width:84px; }

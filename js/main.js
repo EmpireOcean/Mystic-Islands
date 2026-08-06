@@ -210,7 +210,9 @@ if (ui.isMobile) {
 
 // Mở khóa/resume âm thanh ở MỌI lần chạm — không dùng {once:true} vì trên di động, AudioContext còn bị
 // trình duyệt tự suspend lại mỗi khi tab chuyển nền hoặc màn hình khoá, cần resume() lại ở lần chạm kế tiếp.
+// Gắn cả 'touchend' vì đây là sự kiện đáng tin cậy nhất để mở khoá WebAudio trên Safari iOS đời cũ.
 window.addEventListener('pointerdown', () => audio.ensure());
+window.addEventListener('touchend', () => audio.ensure());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) audio.ensure(); });
 
 // hook cho việc kiểm thử / gỡ lỗi
