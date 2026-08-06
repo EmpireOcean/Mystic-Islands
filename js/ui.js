@@ -309,8 +309,9 @@ export class UI {
     $('hud-level').textContent = s.level;
     $('hud-lives').textContent = s.lives;
 
-    const wNames = { fist: '✊ Bare Hands', sword: `🗡 Sword (${s.swordDur})`, gun: `🔫 Gun (${s.ammo})` };
-    $('btn-weapon').textContent = wNames[game.weapon];
+    const wIcons = { fist: '✊', sword: '🗡', gun: '🔫' };
+    const wNames = { fist: 'Bare Hands', sword: `Sword (${s.swordDur})`, gun: `Gun (${s.ammo})` };
+    $('btn-weapon').innerHTML = `<span class="ico">${wIcons[game.weapon]}</span><span class="lbl">${wNames[game.weapon]}</span>`;
     $('crosshair').classList.toggle('hidden', game.weapon !== 'gun');
 
     // cảnh báo độ bền / đạn

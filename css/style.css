@@ -244,9 +244,12 @@ body.force-landscape #btn-rotate { transform:translateX(-50%) rotate(-90deg); }
   #hud-topright .stat { font-size:.8rem; padding:3px 9px; }
   #reward-icons { gap:8px; }
   .reward-item { width:84px; }
-  /* nút HUD thu nhỏ lại, nằm CÙNG hàng đáy màn hình với joystick (trái) và cụm tam giác (phải), không đè lên nhau */
-  .btn-mini { padding:clamp(6px,2vw,9px) clamp(8px,3vw,13px); font-size:clamp(.7rem,2.8vw,.85rem); border-radius:13px; }
-  /* max-width hẹp buộc mỗi nút xuống 1 dòng riêng (xếp dọc, 3 hàng) — đủ hẹp để không đè lên joystick/tam giác
-     hai bên khi cùng nằm sát đáy màn hình */
-  #hud-weapon { bottom:max(20px, 3vh); gap:clamp(3px,1vw,6px); max-width:min(30vw, 112px); }
+  /* nút chữ nhật nhỏ, MỘT HÀNG NGANG sát đáy màn hình — thay vì chen ngang với joystick/tam giác, đẩy 2 cụm
+     đó lên MỘT TẦNG CAO HƠN (xem #joystick/#mobile-btns bên dưới) nên hàng này được dùng gần hết bề ngang,
+     không cần ép nhỏ thành icon tròn nữa */
+  .btn-mini { padding:6px 10px; font-size:.72rem; border-radius:10px; }
+  #hud-weapon { bottom:max(10px, 2vh); gap:6px; max-width:96vw; flex-wrap:nowrap; }
+  /* đẩy joystick + cụm tam giác lên cao hơn hẳn hàng nút HUD phía dưới — 2 tầng riêng biệt, không còn
+     phải chen chúc cùng một hàng ngang nữa */
+  #joystick, #mobile-btns { bottom:max(92px, 13vh); }
 }
