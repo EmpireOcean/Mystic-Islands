@@ -5,6 +5,23 @@ import * as V from './voxel.js';
 
 const tileKey = (x, z) => `${x},${z}`;
 
+// vị trí (x,z) có đủ chỗ trống không chồng lấn vật thể/đảo đã đặt TỪ TRƯỚC không (bỏ qua node liền trước —
+// cố ý ở gần để vừa tầm nhảy). boundP/boundI = độ dài w.platforms/w.islands TÍNH ĐẾN TRƯỚC node liền trước,
+// nhờ vậy chỉ so với các node từ 2 bước trở lên — chỗ dễ chồng lấn khi đường chuỗi "cuộn" lại do heading xoay tự do.
+function hasSpaceFor(w, x, z, footR, boundP, boundI) {
+  const buffer = 1.0; // khoảng hở tối thiểu, chừa đường nhảy/đứng, không dính sát nhau
+  for (let i = 0; i < boundP; i++) {
+    const p = w.platforms[i];
+    const pr = Math.max(p.hw, p.hd);
+    if (Math.hypot(x - p.x, z - p.z) < footR + pr + buffer) return false;
+  }
+  for (let i = 0; i < boundI; i++) {
+    const isl = w.islands[i];
+    if (Math.hypot(x - isl.x, z - isl.z) < footR + isl.r + buffer) return false;
+  }
+  return true;
+}
+
 export function generateLevel(level) {
   const group = new THREE.Group();
   const world = {
@@ -326,7 +343,37 @@ function buildChain(w, level) {
   const monsterChance = monstersDense ? CFG.monsters.chanceDense : CFG.monsters.chanceSparse;
 
   let prevCy = py;
+  // lenBeforePrev/lenBeforePrevI = độ dài w.platforms/w.islands TÍNH TỪ TRƯỚC KHI node liền trước (i-1) được
+  // đặt — dùng làm biên loại trừ khi kiểm tra chồng lấn cho node hiện tại, nhờ vậy chỉ so với node từ 2 bước
+  // trở lên, không chặn nhầm node liền kề (vốn CỐ Ý ở gần, vừa tầm nhảy). Cập nhật ở CUỐI mỗi vòng lặp bằng
+  // giá trị "độ dài trước khi vòng lặp này thêm gì" — lệch đúng 1 nhịp so với node hiện tại.
+  let lenBeforePrev = 0, lenBeforePrevI = 0;
   for (let i = 0; i < count; i++) {
+    const lenBeforeThis = w.platforms.length, lenBeforeThisI = w.islands.length;
+
+    if (i > 0) {
+      // vị trí node i: xoay hướng tự do quanh cả 360° (trước/sau/ngang đều được) từ node i-1 — khoảng cách/độ
+      // cao nhảy (dist/dy) không đổi theo hướng nên đường nhảy giữa 2 vật thể liền kề luôn giữ nguyên tầm nhảy
+      // được, bất kể xoay hướng nào. Thử vài hướng nếu vị trí mới chồng lấn vật đã đặt từ 2 bước trở lên trước
+      // đó (đường chuỗi cuộn lại) — không tìm được chỗ trống sau vài lần thử thì chấp nhận lần thử cuối, tránh
+      // lặp vô hạn.
+      const distMax = level >= CFG.chain.distFarLevel ? CFG.chain.distMaxFar : CFG.chain.distMax;
+      let nextHeading, nextCx, nextCz, nextDy;
+      for (let attempt = 0; attempt < 24; attempt++) {
+        // 8 lần đầu: hướng ngẫu nhiên quanh heading hiện tại (giữ đường đi tự nhiên như cũ). Vẫn chồng lấn thì
+        // chuyển sang quét đều 16 hướng quanh cả 360° — vét gần hết mọi hướng khả dĩ (kể cả khe hở hẹp) trước
+        // khi đành chấp nhận lần thử cuối.
+        nextHeading = attempt < 8 ? heading + rand(-1.3, 1.3) : (attempt - 8) / 16 * Math.PI * 2;
+        const dist = rand(CFG.chain.distMin, distMax);
+        nextDy = rand(0.55, 1.15);
+        nextCx = cx + Math.cos(nextHeading) * dist;
+        nextCz = cz + Math.sin(nextHeading) * dist;
+        if (hasSpaceFor(w, nextCx, nextCz, 1.6, lenBeforePrev, lenBeforePrevI)) break;
+      }
+      heading = nextHeading;
+      cx = nextCx; cz = nextCz; cy += nextDy;
+    }
+
     // đoạn bay ngang đảo: vật thể thấp (nhảy được từ mặt đất), tránh cắm sâu vào địa hình
     const groundH = w.tiles.get(tileKey(Math.round(cx), Math.round(cz)));
     let shallow = false;
@@ -347,14 +394,29 @@ function buildChain(w, level) {
     if (isMonsterNode) {
       // đảo quái to: đặt tâm lùi sâu để mép đảo cách vật thể trước ~2 đơn vị
       const ir = rand(5.5, 6.5);
-      const icx = cx + Math.cos(heading) * (ir - 1.0);
-      const icz = cz + Math.sin(heading) * (ir - 1.0);
-      buildMonsterIsland(w, icx, cy, icz, tier, ir);
-      // node tiếp theo xuất phát từ mép xa của đảo
-      cx = icx + Math.cos(heading) * (ir + rand(2.2, 2.8));
-      cz = icz + Math.sin(heading) * (ir + rand(2.2, 2.8));
-      cy += rand(0.3, 0.7);
-      continue;
+      let icx = cx + Math.cos(heading) * (ir - 1.0);
+      let icz = cz + Math.sin(heading) * (ir - 1.0);
+      // đảo to (bán kính va chạm tới r*1.3, xem buildMonsterIsland — mặt cỏ tràn ra ngoài đế đá) dễ chồng lên
+      // vật thể/đảo đã đặt từ trước nếu đường chuỗi cuộn lại — thử vài hướng ngẫu nhiên trước, không được thì
+      // quét đều quanh cả 360°
+      let fits = hasSpaceFor(w, icx, icz, ir * 1.3, lenBeforePrev, lenBeforePrevI);
+      for (let attempt = 0; attempt < 21 && !fits; attempt++) {
+        heading = attempt < 5 ? baseAngle + rand(-2.5, 2.5) : (attempt - 5) / 16 * Math.PI * 2;
+        icx = cx + Math.cos(heading) * (ir - 1.0);
+        icz = cz + Math.sin(heading) * (ir - 1.0);
+        fits = hasSpaceFor(w, icx, icz, ir * 1.3, lenBeforePrev, lenBeforePrevI);
+      }
+      // đảo quá to để chồng khít vào bất kỳ hướng nào quanh đây — KHÔNG cố nhét ép (dễ vượt tầm nhảy hoặc vẫn
+      // chồng lấn), bỏ qua đảo quái ở node này, rơi xuống nhánh đặt vật thể thường (nhỏ, dễ tìm chỗ) bên dưới
+      if (fits) {
+        buildMonsterIsland(w, icx, cy, icz, tier, ir);
+        lenBeforePrev = lenBeforeThis; lenBeforePrevI = lenBeforeThisI;
+        // node tiếp theo xuất phát từ mép xa của đảo
+        cx = icx + Math.cos(heading) * (ir + rand(2.2, 2.8));
+        cz = icz + Math.sin(heading) * (ir + rand(2.2, 2.8));
+        cy += rand(0.3, 0.7);
+        continue;
+      }
     }
 
     const obj = V.buildFloatingObject(shallow);
@@ -400,22 +462,16 @@ function buildChain(w, level) {
       }
     }
 
-    // hướng vật thể kế tiếp: xoay tự do quanh cả 360° (trước/sau/ngang đều được) thay vì bó hẹp trong một
-    // hình nón hướng về đích — khoảng cách/độ cao nhảy (dist/dy bên dưới) không đổi theo hướng nên đường nhảy
-    // giữa 2 vật thể liền kề luôn giữ nguyên tầm nhảy được, bất kể xoay hướng nào
-    heading += rand(-1.3, 1.3);
-
-    // từ level distFarLevel trở đi: khoảng cách xa nhất có thể được nới rộng gần tới giới hạn nhảy tối đa —
-    // không phải lúc nào cũng vậy, chỉ là biên trên rand() được đẩy lên nên NGẪU NHIÊN thỉnh thoảng mới chạm mức đó
-    const distMax = level >= CFG.chain.distFarLevel ? CFG.chain.distMaxFar : CFG.chain.distMax;
-    const dist = rand(CFG.chain.distMin, distMax);
-    const dy = rand(0.55, 1.15);
-    cx += Math.cos(heading) * dist;
-    cz += Math.sin(heading) * dist;
-    cy += dy;
+    lenBeforePrev = lenBeforeThis; lenBeforePrevI = lenBeforeThisI;
   }
 
-  buildGoalIsland(w, cx + Math.cos(heading) * 0.8, cy, cz + Math.sin(heading) * 0.8, heading);
+  // đảo đích (bán kính 3.5) cũng có thể chồng lên vật thể/đảo đặt từ trước nếu đường chuỗi cuộn lại tới sát
+  // cuối — thử vài hướng quanh node cuối tới khi tìm được chỗ trống, không tìm được thì chấp nhận lần thử cuối
+  let goalHeading = heading;
+  for (let attempt = 0; attempt < 21 && !hasSpaceFor(w, cx + Math.cos(goalHeading) * 0.8, cz + Math.sin(goalHeading) * 0.8, 3.5, lenBeforePrev, lenBeforePrevI); attempt++) {
+    goalHeading = attempt < 5 ? heading + rand(-1.3, 1.3) : (attempt - 5) / 16 * Math.PI * 2;
+  }
+  buildGoalIsland(w, cx + Math.cos(goalHeading) * 0.8, cy, cz + Math.sin(goalHeading) * 0.8, goalHeading);
 }
 
 function chainCountFor(level) {
