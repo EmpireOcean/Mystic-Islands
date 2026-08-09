@@ -145,6 +145,138 @@ function cyl(rTop, rBot, h, color, seg = 10, opts = {}) {
   return m;
 }
 
+// ===== ĐO VÙNG VA CHẠM TRỰC TIẾP TỪ HÌNH HỌC ĐÃ DỰNG =====
+// Duyệt TOÀN BỘ đỉnh của mọi mesh con (kể cả InstancedMesh) sau khi đã áp dụng đầy đủ mọi phép biến đổi thật
+// (xoay yaw + nghiêng + scale + vị trí), nên kết quả luôn khớp CHÍNH XÁC hình khối người chơi nhìn thấy —
+// không còn phụ thuộc việc tính tay bằng lượng giác cho từng kiểu xoay (nguồn gốc mọi lỗi va chạm lệch trước đây).
+//
+// Mỗi vật được bao bởi giao của `sides` nửa mặt phẳng, pháp tuyến chia đều quanh trục đứng bắt đầu từ baseAngle:
+//   sides = 4, baseAngle = yaw  → hình chữ nhật/vuông XOAY THEO vật (khít tuyệt đối với vật khối hộp)
+//   sides = 6, baseAngle = yaw  → lục giác (dùng cho vật tròn — bám sát đường tròn hơn hẳn hình chữ nhật bao ngoài)
+// Vì mỗi khoảng cách dists[k] lấy đúng bằng hình chiếu XA NHẤT của đỉnh thật lên pháp tuyến k, đa giác thu được
+// là đa giác NHỎ NHẤT có bộ pháp tuyến đó mà vẫn bao trọn vật — không thừa, và tuyệt đối không thiếu.
+//
+// Trả về { normals:[{x,z}], dists:[số] } trong TOẠ ĐỘ THẾ GIỚI. Quy ước: điểm p nằm TRONG đa giác khi và chỉ khi
+// dot(p - (cx,cz), normals[k]) <= dists[k] với MỌI k.
+const _mv = new THREE.Vector3();
+const _mmA = new THREE.Matrix4();
+const _mmB = new THREE.Matrix4();
+
+function eachVertexXZ(root, fn) {
+  // Cập nhật ma trận của CHUỖI TỔ TIÊN trước (root có thể là mesh con nằm sâu trong nhóm vừa dựng, lúc này
+  // ma trận thế giới của cha/ông chưa được tính) rồi mới cập nhật cả nhánh con của root — nếu bỏ bước này,
+  // toạ độ đo được sẽ thiếu phép xoay/dời của nhóm cha và vùng va chạm lại lệch đúng kiểu lỗi cũ.
+  const chain = [];
+  for (let o = root; o; o = o.parent) chain.push(o);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const o = chain[i];
+    if (o.matrixAutoUpdate) o.updateMatrix();
+    if (o.parent) o.matrixWorld.multiplyMatrices(o.parent.matrixWorld, o.matrix);
+    else o.matrixWorld.copy(o.matrix);
+  }
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    const pos = o.geometry?.attributes?.position;
+    // bỏ qua hiệu ứng trang trí không phải vật cản (hạt lấp lánh, ánh sáng...) — chúng không có mặt để đứng lên
+    if (!pos || o.userData?.noCollide) return;
+    if (o.isInstancedMesh) {
+      for (let i = 0; i < o.count; i++) {
+        o.getMatrixAt(i, _mmA);
+        _mmB.multiplyMatrices(o.matrixWorld, _mmA);
+        for (let v = 0; v < pos.count; v++) { _mv.fromBufferAttribute(pos, v).applyMatrix4(_mmB); fn(_mv.x, _mv.z, _mv.y); }
+      }
+    } else if (o.isMesh) {
+      for (let v = 0; v < pos.count; v++) { _mv.fromBufferAttribute(pos, v).applyMatrix4(o.matrixWorld); fn(_mv.x, _mv.z, _mv.y); }
+    }
+  });
+}
+
+// Bao lồi (convex hull) của tập điểm mặt bằng — thuật toán Andrew monotone chain.
+// Đây là ĐA GIÁC LỒI NHỎ NHẤT chứa toàn bộ hình khối: không thể khít hơn nữa mà vẫn bao trọn.
+function convexHullXZ(pts) {
+  const P = [];
+  for (let i = 0; i < pts.length; i += 2) P.push({ x: pts[i], z: pts[i + 1] });
+  P.sort((u, v) => (u.x - v.x) || (u.z - v.z));
+  if (P.length < 3) return P;
+  const cross = (o, a, b) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+  const lo = [], up = [];
+  for (const p of P) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (let i = P.length - 1; i >= 0; i--) { const p = P[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+  lo.pop(); up.pop();
+  return lo.concat(up);
+}
+
+// Rút gọn đa giác lồi xuống tối đa `maxSides` cạnh mà VẪN BAO TRỌN hình cũ: mỗi bước bỏ đi một cạnh và kéo dài
+// hai cạnh kề cho tới khi chúng cắt nhau; luôn chọn cạnh mà việc bỏ nó làm phình ra ít diện tích nhất.
+function simplifyHull(h, maxSides) {
+  const inter = (a1, a2, b1, b2) => { // giao điểm của đường thẳng a1a2 và b1b2
+    const dax = a2.x - a1.x, daz = a2.z - a1.z, dbx = b2.x - b1.x, dbz = b2.z - b1.z;
+    const det = dax * dbz - daz * dbx;
+    if (Math.abs(det) < 1e-9) return null; // song song — không rút gọn được ở đây
+    const t = ((b1.x - a1.x) * dbz - (b1.z - a1.z) * dbx) / det;
+    return { x: a1.x + dax * t, z: a1.z + daz * t };
+  };
+  while (h.length > maxSides) {
+    let bestI = -1, bestAdd = Infinity, bestP = null;
+    for (let i = 0; i < h.length; i++) {
+      const n = h.length;
+      const p0 = h[(i - 1 + n) % n], p1 = h[i], p2 = h[(i + 1) % n], p3 = h[(i + 2) % n];
+      const q = inter(p0, p1, p2, p3);
+      if (!q) continue;
+      const add = Math.abs((p1.x - q.x) * (p2.z - q.z) - (p2.x - q.x) * (p1.z - q.z)) / 2;
+      if (add < bestAdd) { bestAdd = add; bestI = i; bestP = q; }
+    }
+    if (bestI < 0) break;
+    const n = h.length;
+    const next = (bestI + 1) % n;
+    h[bestI] = bestP;
+    h.splice(next, 1);
+    if (next === 0) h.push(h.shift()); // giữ đúng thứ tự vòng sau khi xoá phần tử đầu
+  }
+  return h;
+}
+
+// ĐO VÙNG VA CHẠM: bao lồi của hình khối THẬT, rút gọn tối đa `maxSides` cạnh, trả về dạng nửa mặt phẳng.
+// Khối hộp cho ra đúng 4 cạnh → va chạm là HÌNH CHỮ NHẬT/VUÔNG khớp tuyệt đối với khối hộp đó.
+// Vật tròn cho ra đa giác đều theo `maxSides` (vd 6 → lục giác) bao sát mặt tròn.
+export function measureFootprint(root, maxSides = 8, cx = 0, cz = 0) {
+  let h = convexHullXZ(collectXZ(root));
+  if (h.length < 3) return { normals: [{ x: 1, z: 0 }, { x: 0, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }], dists: [0, 0, 0, 0], reach: 0 };
+  h = simplifyHull(h, maxSides);
+
+  // tâm hình để xác định chiều "ra ngoài" của pháp tuyến từng cạnh
+  let mx = 0, mz = 0;
+  for (const p of h) { mx += p.x; mz += p.z; }
+  mx /= h.length; mz /= h.length;
+
+  const normals = [], dists = [];
+  for (let i = 0; i < h.length; i++) {
+    const a = h[i], b = h[(i + 1) % h.length];
+    let nx = b.z - a.z, nz = -(b.x - a.x);           // pháp tuyến của cạnh
+    const len = Math.hypot(nx, nz) || 1;
+    nx /= len; nz /= len;
+    if ((mx - a.x) * nx + (mz - a.z) * nz > 0) { nx = -nx; nz = -nz; } // luôn hướng RA NGOÀI
+    normals.push({ x: nx, z: nz });
+    dists.push((a.x - cx) * nx + (a.z - cz) * nz);
+  }
+  let reach = 0;
+  for (const p of h) { const d = Math.hypot(p.x - cx, p.z - cz); if (d > reach) reach = d; }
+  return { normals, dists, reach };
+}
+
+function collectXZ(root) {
+  const pts = [];
+  eachVertexXZ(root, (x, z) => { pts.push(x, z); });
+  return pts;
+}
+
+// đỉnh cao nhất đo từ hình học thật (bỏ qua hiệu ứng trang trí) — cho chiều cao khối va chạm
+export function measureTopY(root) {
+  let top = -Infinity;
+  eachVertexXZ(root, (x, z, y) => { if (y > top) top = y; });
+  return isFinite(top) ? top : 0;
+}
+
 // ===== Nhân vật — 4 mẫu khác biệt rõ (tỉ lệ, mũ/tóc, hoa văn, phụ kiện), khớp vai/khuỷu/hông =====
 export const CHAR_SKINS = [
   { name: 'Fern', skin: 0xf2c9a1, shirt: 0x7fb069, sleeve: 0x6da058, pants: 0x5a6e8c, shoe: 0x40506a, hair: 0x4a3628,
@@ -380,6 +512,8 @@ export function buildTree(scale = 1) {
     g.add(b);
   }
   g.scale.setScalar(scale);
+  // thân cây là khối hộp VUÔNG → va chạm dùng hình vuông đo từ chính khối thân (xem measureFootprint)
+  g.userData.trunkMesh = trunkLow;
   return g;
 }
 // cây cổ thụ: cùng logic tán CỤM khối như buildTree (không dùng tấm dẹt xếp chồng nữa) — chỉ to hơn, thân
@@ -420,6 +554,8 @@ export function buildBigTree(scale = 1) {
     g.add(b);
   }
   g.scale.setScalar(scale);
+  // thân cây là khối hộp VUÔNG → va chạm dùng hình vuông đo từ chính khối thân (xem measureFootprint)
+  g.userData.trunkMesh = trunkLow;
   return g;
 }
 export function buildFlower() {
@@ -479,7 +615,8 @@ export function buildRock() {
   b.rotation.y = rot;
   g.add(b);
 
-  g.userData.hitR = Math.max(sMain, offA + sA * 0.5, offB + sB * 0.5);
+  // vùng va chạm không khai báo ở đây nữa — world.js đo trực tiếp bao lồi của cụm 3 khối bằng measureFootprint
+  // (công thức cũ max(sMain, offA+sA*0.5, ...) là trụ tròn tính tay, bỏ qua cả góc xoay lẫn hình dạng cụm)
   g.userData.hitH = hMain - embedDepth;
   return g;
 }
@@ -664,10 +801,17 @@ export function buildColumn(state) {
     f.rotation.y = rand(0, Math.PI);
     g.add(f);
     hitH = 1.6;
-    // phần thân đổ nằm ngang cũng là vật rắn (trụ va chạm thấp bao quanh)
-    g.userData.fallen = { x: fx, z: fz, r: 1.15, h: 0.95 };
+    // Phần thân đổ nằm ngang: khối TRỤ NẰM NGANG nên mặt cắt ngang là HÌNH CHỮ NHẬT (dài 2.2 × rộng ~0.92),
+    // trước đây gán trụ tròn r=1.15 nên hai bên sườn phình ra thành tường vô hình rộng gấp đôi thân cột thật.
+    // Trục nằm sau khi xoay chồng 2 trục (z rồi y) không suy ra được bằng công thức đơn giản → đo hình chữ nhật
+    // bao nhỏ nhất trực tiếp từ hình học thật (mesh f đã mang đầy đủ phép xoay).
+    g.userData.fallen = { mesh: f, x: fx, z: fz, h: 0.95 };
   }
   g.userData.hitH = hitH;
+  // Bán kính va chạm = bán kính THÂN CỘT thật (cyl 0.42→0.5), lấy đúng từ tham số hình học đã dựng ở trên.
+  // Bệ đá vuông 1.3×1.3 dưới chân chỉ cao 0.35 (bước qua được) nên không tính vào trụ va chạm — nếu tính,
+  // trụ phải phình lên 0.92 và tạo tường vô hình cao suốt thân cột ở chỗ mắt chỉ thấy khoảng không.
+  g.userData.hitR = 0.5;
   return g;
 }
 
@@ -810,6 +954,7 @@ export function buildTreasureChest() {
     color: 0xffe9a0, size: 0.09, transparent: true, opacity: 0.95,
     blending: THREE.AdditiveBlending, depthWrite: false,
   }));
+  sparkle.userData.noCollide = true; // hạt sáng trang trí — không phải vật cản, không tính vào vùng va chạm
   g.add(sparkle);
   g.userData.sparkle = sparkle;
   return g;
@@ -844,7 +989,8 @@ function objBook() {
     g.add(line);
   }
   g.add(pageL, pageR, covL, covR, spine);
-  return { group: g, hw: 1.15, hd: 0.85, depth: 0.32 };
+  // mép ngoài covL/covR (box rộng 1.2, tâm lệch ±0.6) là điểm xa nhất — 0.6+0.6=1.2, không phải 1.15 như trước
+  return { group: g, hw: 1.2, hd: 0.82, depth: 0.32 };
 }
 function objDice() {
   const g = new THREE.Group();
@@ -883,7 +1029,8 @@ function objPillow() {
     g.add(k);
   }
   g.add(body, mid);
-  return { group: g, hw: 0.95, hd: 0.72, depth: 0.5 };
+  // góc "khuy" (knot) ở (±1.0, ±0.75) rộng 0.18 là điểm xa nhất — 1.0+0.09=1.09 / 0.75+0.09=0.84
+  return { group: g, hw: 1.1, hd: 0.85, depth: 0.5 };
 }
 function objYarn() {
   const g = new THREE.Group();
@@ -903,7 +1050,9 @@ function objYarn() {
     ring.rotation.set(rand(0.6, 1.4), rand(0, Math.PI), rand(-0.4, 0.4));
     g.add(ring);
   }
-  return { group: g, hw: 0.7, hd: 0.7, depth: 1.26 };
+  // round: quả cầu len — vùng va chạm dùng LỤC GIÁC đo từ đỉnh thật (xem measureFootprint), bám sát mặt tròn
+  // hơn hẳn hình chữ nhật bao ngoài. hw/hd dưới đây chỉ còn dùng để rải xu/rương trang trí trên mặt vật.
+  return { group: g, hw: 1.15, hd: 1.15, depth: 1.26, round: true };
 }
 function objLog() {
   const g = new THREE.Group();
@@ -924,7 +1073,8 @@ function objLog() {
   const knot = cyl(0.12, 0.16, 0.3, wood, 8);
   knot.position.set(rand(-0.5, 0.5), -0.1, 0.2);
   g.add(trunk, knot);
-  return { group: g, hw: 1.15, hd: 0.5, depth: 1.0 };
+  // mặt cắt gỗ (face) ở x=±1.16 dày thêm 0.02 mới là điểm xa nhất theo X — 1.16+0.02=1.18
+  return { group: g, hw: 1.2, hd: 0.5, depth: 1.0 };
 }
 function objMatchbox() {
   const g = new THREE.Group();
@@ -939,7 +1089,9 @@ function objMatchbox() {
     g.add(stick, head);
   }
   g.add(outer, label, drawer);
-  return { group: g, hw: 0.9, hd: 0.55, depth: 0.55 };
+  // ngăn kéo (drawer) đẩy ra tại x=1.1, rộng 1.0 → mép ngoài 1.1+0.5=1.6 — xa hơn HẲN so với 0.9 khai báo cũ
+  // (thân hộp diêm chỉ rộng 0.9), khiến ngăn kéo trông như sàn đứng được nhưng thực ra rơi xuyên qua
+  return { group: g, hw: 1.6, hd: 0.55, depth: 0.55 };
 }
 function objBookStack() {
   const g = new THREE.Group();
@@ -958,7 +1110,8 @@ function objBookStack() {
     pages.rotation.y = b.rotation.y;
     g.add(pages, b);
   }
-  return { group: g, hw: 0.85, hd: 0.62, depth: 1.05 };
+  // cuốn to nhất (đáy) rộng 1.9x1.35 + lệch vị trí ±0.08 + xoay tới 0.15 rad — mép ngoài thật xa hơn hẳn khai báo cũ
+  return { group: g, hw: 1.15, hd: 0.9, depth: 1.05 };
 }
 function objLid() {
   const g = new THREE.Group();
@@ -974,7 +1127,9 @@ function objLid() {
     g.add(notch);
   }
   g.add(top, rim, inner);
-  return { group: g, hw: 0.85, hd: 0.85, depth: 0.42 };
+  // round: nắp vung tròn — vùng va chạm dùng LỤC GIÁC đo từ đỉnh thật (xem measureFootprint).
+  // hw/hd dưới đây chỉ còn dùng để rải xu/rương trang trí trên mặt vật.
+  return { group: g, hw: 1.1, hd: 1.1, depth: 0.42, round: true };
 }
 function objMossRock() {
   const g = new THREE.Group();
@@ -983,7 +1138,8 @@ function objMossRock() {
   rock.position.y = -0.68;
   const tuft = buildGrassTuft(); tuft.position.set(rand(-0.5, 0.5), 0, rand(-0.5, 0.5));
   g.add(topM, rock, tuft);
-  return { group: g, hw: topM.geometry.parameters.width / 2 - 0.1, hd: topM.geometry.parameters.depth / 2 - 0.1, depth: 1.03 };
+  // trước đây trừ đi 0.1 khiến va chạm hẹp hơn cả mặt cỏ (topM) thật — bỏ phần trừ, khớp đúng mép topM
+  return { group: g, hw: topM.geometry.parameters.width / 2, hd: topM.geometry.parameters.depth / 2, depth: 1.03 };
 }
 
 const OBJECT_POOL = [objBook, objDice, objBread, objPillow, objYarn, objLog, objMatchbox, objBookStack, objLid];
@@ -1291,6 +1447,22 @@ export function buildRockBase(rTop, depth, color, grassColor) {
   addInst(mainB, color, objTexFor(color));
   addInst(altB, colorAlt, objTexFor(colorAlt));
   if (grassColor) addInst(grassB, grassColor, makeBlockTexture('grass', { grain: 0.14, border: 0.2 }));
+  // Bán kính MẶT ĐỨNG THẬT: chỉ tính lớp trên cùng (khối đá lớp i===0 + viền cỏ phủ lên nó) — đây mới là mặt
+  // người chơi/quái đứng lên và nhìn thấy mép. Các lớp đá bên dưới thon nhỏ dần nên không liên quan.
+  // Lấy đúng góc xa nhất của từng khối (đã tính cả góc xoay ry) — số đo thật, không phải hệ số ước lượng.
+  const topLayerY = 0.4 + 0.2; // topY của lớp i===0 (xem vòng lặp phía trên)
+  let topR = 0;
+  for (const arr of [mainB, altB, grassB]) {
+    for (const b of arr) {
+      if (b.y + b.h / 2 < topLayerY - 0.01) continue; // không thuộc lớp trên cùng
+      const c = Math.abs(Math.cos(b.ry)), s = Math.abs(Math.sin(b.ry));
+      const ex = (b.w / 2) * c + (b.d / 2) * s; // nửa bề rộng hình chiếu sau khi xoay ry
+      const ez = (b.w / 2) * s + (b.d / 2) * c;
+      const d = Math.hypot(Math.abs(b.x) + ex, Math.abs(b.z) + ez);
+      if (d > topR) topR = d;
+    }
+  }
+  g.userData.topR = topR;
   return g;
 }
 

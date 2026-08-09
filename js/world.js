@@ -5,14 +5,20 @@ import * as V from './voxel.js';
 
 const tileKey = (x, z) => `${x},${z}`;
 
+// Vật cản (w.colliders) có 2 dạng: trụ tròn { r } hoặc đa giác đo từ hình học thật { foot }.
+// Hàm này trả về tầm với xa nhất tính từ tâm — dùng cho các phép lọc thô theo khoảng cách.
+const colliderReach = (c) => (c.foot ? c.foot.reach : c.r);
+
 // vị trí (x,z) có đủ chỗ trống không chồng lấn vật thể/đảo đã đặt TỪ TRƯỚC không (bỏ qua node liền trước —
 // cố ý ở gần để vừa tầm nhảy). boundP/boundI = độ dài w.platforms/w.islands TÍNH ĐẾN TRƯỚC node liền trước,
 // nhờ vậy chỉ so với các node từ 2 bước trở lên — chỗ dễ chồng lấn khi đường chuỗi "cuộn" lại do heading xoay tự do.
 function hasSpaceFor(w, x, z, footR, boundP, boundI) {
-  const buffer = 1.0; // khoảng hở tối thiểu, chừa đường nhảy/đứng, không dính sát nhau
+  // khoảng hở tối thiểu — chừa đường nhảy/đứng, không dính sát nhau. Đủ rộng hơn kích thước rương gỗ (hw/hd
+  // 0.4/0.35) có thể lệch ra tận mép vật thể/đảo, để rương không lấn sang vật/đảo kế bên dù đặt sát mép nhất.
+  const buffer = 1.4;
   for (let i = 0; i < boundP; i++) {
     const p = w.platforms[i];
-    const pr = Math.max(p.hw, p.hd);
+    const pr = p.foot.reach; // khoảng cách xa nhất tới tâm, đo từ đỉnh thật
     if (Math.hypot(x - p.x, z - p.z) < footR + pr + buffer) return false;
   }
   for (let i = 0; i < boundI; i++) {
@@ -28,9 +34,9 @@ export function generateLevel(level) {
     group,
     tiles: new Map(),      // "x,z" -> độ cao mặt đất đảo khởi đầu
     water: new Map(),      // "x,z" -> độ cao mặt nước (sông/hồ)
-    platforms: [],         // vật thể lơ lửng {x,y(top),z,hw,hd,tier,mesh}
-    islands: [],           // đảo quái + đảo đích + gò đất {x,z,y(top),r,tier}
-    colliders: [],         // vật cản rắn hình trụ {x,z,r,y,h} (cột đá...)
+    platforms: [],         // vật thể lơ lửng {x,y(top),z,foot(đa giác va chạm),tier,depth,mesh}
+    islands: [],           // đảo quái + đảo đích + gò đất {x,z,y(top),r,tier} — mặt tròn nên dùng va chạm tròn
+    colliders: [],         // vật cản rắn {x,z,y,h} + hoặc r (trụ tròn) hoặc foot (đa giác đo từ hình học thật)
     coins: [],
     chests: [],
     monsters: [],
@@ -368,7 +374,11 @@ function buildChain(w, level) {
         nextDy = rand(0.55, 1.15);
         nextCx = cx + Math.cos(nextHeading) * dist;
         nextCz = cz + Math.sin(nextHeading) * dist;
-        if (hasSpaceFor(w, nextCx, nextCz, 1.6, lenBeforePrev, lenBeforePrevI)) break;
+        // 1.7: ước lượng an toàn cho kích thước vật thể LỚN NHẤT có thể được chọn ngẫu nhiên ở node này (hộp
+        // diêm — objMatchbox — hw thật 1.6, sau khi xoay yaw ngẫu nhiên AABB bao có thể tới 1.69, xem voxel.js)
+        // — chưa biết trước sẽ chọn vật nào nên phải ước lượng theo vật to nhất đã xoay, tránh chồng lấn y hệt
+        // lỗi bán kính đảo quái đã sửa trước đó
+        if (hasSpaceFor(w, nextCx, nextCz, 1.7, lenBeforePrev, lenBeforePrevI)) break;
       }
       heading = nextHeading;
       cx = nextCx; cz = nextCz; cy += nextDy;
@@ -426,14 +436,19 @@ function buildChain(w, level) {
     obj.group.rotation.set(Math.cos(tiltDir) * tiltA, yaw, Math.sin(tiltDir) * tiltA);
     obj.group.position.set(cx, cy, cz);
     w.group.add(obj.group);
-    // AABB bao khối đã xoay
-    const c = Math.abs(Math.cos(yaw)), s = Math.abs(Math.sin(yaw));
-    const hw = obj.hw * c + obj.hd * s;
-    const hd = obj.hw * s + obj.hd * c;
-    const plat = { x: cx, y: cy, z: cz, hw, hd, tier, depth: obj.depth || 1.2, mesh: obj.group };
+    // VÙNG VA CHẠM ĐO TỪ HÌNH HỌC THẬT (xem V.measureFootprint) — thay cho công thức lượng giác tính tay cũ,
+    // vốn chỉ tính theo yaw và bỏ sót hoàn toàn phần nghiêng tiltA/tiltDir, khiến MỌI vật thể đều lệch ít nhiều.
+    // Vật tròn → lục giác (6 cạnh bám sát mặt tròn); vật khối hộp → bao lồi tự cho ra đúng HÌNH CHỮ NHẬT/VUÔNG
+    // khớp tuyệt đối, còn vật ghép nhiều khối (vd hộp diêm có ngăn kéo thò ra) được tối đa 8 cạnh để ôm sát
+    // hình chữ L thay vì phình thành một hộp chữ nhật to trùm cả khoảng trống.
+    const foot = V.measureFootprint(obj.group, obj.round ? 6 : 8, cx, cz);
+    const plat = { x: cx, y: cy, z: cz, foot, tier, depth: obj.depth || 1.2, mesh: obj.group };
     w.platforms.push(plat);
 
     if (i > 0) {
+      // rải xu/rương trang trí theo kích thước danh nghĩa của vật (hw/hd) — chỉ để chọn CHỖ ĐẶT cho đẹp,
+      // không liên quan tới vùng va chạm (đã đo riêng ở trên)
+      const hw = obj.hw, hd = obj.hd;
       const roll = Math.random();
       if (roll < 0.4) {
         const coin = V.buildCoin();
@@ -452,12 +467,15 @@ function buildChain(w, level) {
           ox = Math.cos(edgeA) * hw * rand(0.55, 1);
           oz = Math.sin(edgeA) * hd * rand(0.55, 1);
         }
+        const chYaw = rand(0, Math.PI * 2);
         ch.position.set(cx + ox, cy, cz + oz);
-        ch.rotation.y = rand(0, Math.PI * 2);
+        ch.rotation.y = chYaw;
         w.group.add(ch);
+        // rương là khối hộp CÓ XOAY — đo hình chữ nhật xoay theo đúng góc của nó, không dùng hộp bao thô
         w.chests.push({
           mesh: ch, hp: CFG.chest.hp, broken: false,
-          x: cx + ox, y: cy, z: cz + oz, hw: 0.4, hd: 0.35, top: cy + 0.62,
+          x: cx + ox, y: cy, z: cz + oz, top: cy + 0.62,
+          foot: V.measureFootprint(ch, 8, cx + ox, cz + oz),
         });
       }
     }
@@ -504,14 +522,14 @@ function buildPortalStructures(w, chainAngle) {
     const ry = -a + Math.PI / 2;
     col.rotation.y = ry;
     w.group.add(col);
-    // cột là vật rắn — không đi xuyên được
-    w.colliders.push({ x: cx, z: cz, r: 0.55, y: ph, h: col.userData.hitH });
-    // phần thân cột gãy đổ nằm ngang cũng chặn (đổi tọa độ cục bộ → thế giới theo góc xoay)
+    // cột là vật rắn — không đi xuyên được (bán kính thân cột đo từ hình học thật, xem buildColumn)
+    w.colliders.push({ x: cx, z: cz, r: col.userData.hitR, y: ph, h: col.userData.hitH });
+    // phần thân cột gãy đổ nằm ngang cũng chặn — hình chữ nhật khít nhất đo trực tiếp từ mesh đã xoay
     const f = col.userData.fallen;
     if (f) {
       const wx = cx + f.x * Math.cos(ry) + f.z * Math.sin(ry);
       const wz = cz - f.x * Math.sin(ry) + f.z * Math.cos(ry);
-      w.colliders.push({ x: wx, z: wz, r: f.r, y: ph, h: f.h });
+      w.colliders.push({ x: wx, z: wz, foot: V.measureFootprint(f.mesh, 8, wx, wz), y: ph, h: f.h });
     }
   }
 }
@@ -555,8 +573,11 @@ function buildIslandDecor(w) {
       t.position.set(wx, w.tiles.get(k), wz);
       t.rotation.y = rand(0, Math.PI * 2);
       w.group.add(t);
-      // thân cây là vật rắn
-      w.colliders.push({ x: wx, z: wz, r: (big ? 0.5 : 0.28) * sc, y: w.tiles.get(k), h: (big ? 5 : 3) * sc });
+      // thân cây là vật rắn — thân là khối hộp vuông nên dùng va chạm HÌNH VUÔNG đo từ chính khối thân
+      w.colliders.push({
+        x: wx, z: wz, y: w.tiles.get(k), h: (big ? 5 : 3) * sc,
+        foot: V.measureFootprint(t.userData.trunkMesh, 4, wx, wz),
+      });
     }
   }
 
@@ -584,8 +605,10 @@ function buildIslandDecor(w) {
     const wx = x + rand(-0.4, 0.4), wz = z + rand(-0.4, 0.4);
     d.position.set(wx, h, wz);
     w.group.add(d);
-    // tảng đá là vật rắn
-    if (isRockDeco) w.colliders.push({ x: wx, z: wz, r: d.userData.hitR, y: h, h: d.userData.hitH });
+    // tảng đá là vật rắn — cụm khối hộp, dùng va chạm hình chữ nhật xoay đúng góc của cụm
+    if (isRockDeco) {
+      w.colliders.push({ x: wx, z: wz, y: h, h: d.userData.hitH, foot: V.measureFootprint(d, 8, wx, wz) });
+    }
   }
 
   // ---- Vật nuôi trang trí: 2–3 con (thỏ/chó/mèo/gà random) đi/nhảy loanh quanh ----
@@ -617,6 +640,11 @@ function buildIslandDecor(w) {
 // ---------- Đảo quái: to hơn, có địa hình gò/đá/bụi ----------
 function buildMonsterIsland(w, x, y, z, tier, r) {
   const g = new THREE.Group();
+  // Đặt nhóm vào đúng vị trí thế giới NGAY TỪ ĐẦU — mọi phép đo vùng va chạm bên dưới (đá, cây...) nhờ vậy đọc
+  // được toạ độ thế giới thật. Nếu để cuối hàm mới đặt, số đo sẽ còn là toạ độ cục bộ và lệch đúng bằng khoảng
+  // cách từ gốc toạ độ tới đảo.
+  g.position.set(x, y, z);
+  w.group.add(g);
   // đế đá voxel + viền cỏ phủ lớp trên cùng (không dùng khối trụ tròn nữa)
   const base = V.buildRockBase(r * 0.9, 4.2, 0xa89a8a, 0x9dc98a);
   base.position.y = -1.0;
@@ -630,18 +658,25 @@ function buildMonsterIsland(w, x, y, z, tier, r) {
     const moundC = pick([0x9dc98a, 0xa8d494]);
     const cell = 0.85;
     const steps = Math.round(mr / cell) + 1;
+    // dựng riêng thành 1 nhóm để đo trực tiếp từ hình học thật — trước đây tính tay bằng công thức
+    // (mr + cell*1.3*√2/2) hụt mất phần khối LỆCH KHỎI TÂM Ô LƯỚI (rotation.y ngẫu nhiên làm góc khối xa
+    // tâm gò hơn cả công thức tính), khiến va chạm đăng ký NHỎ HƠN gò thật — mắt thấy đất mà vẫn rơi hụt/kẹt
+    // ở mép, chứ không phải va chạm to hơn gò. Đo bao lồi thật loại bỏ hoàn toàn sai số này.
+    const moundGroup = new THREE.Group();
     for (let bx = -steps; bx <= steps; bx++) {
       for (let bz = -steps; bz <= steps; bz++) {
         const lx = bx * cell, lz = bz * cell;
         if (Math.hypot(lx, lz) > mr) continue;
         const bl = V.box(cell * rand(1.05, 1.3), mh * rand(0.8, 1.2), cell * rand(1.05, 1.3), moundC);
-        bl.position.set(mx0 + lx, mh / 2, mz0 + lz);
+        bl.position.set(lx, mh / 2, lz);
         bl.rotation.y = rand(-0.08, 0.08);
-        g.add(bl);
+        moundGroup.add(bl);
       }
     }
-    // bán kính va chạm nới thêm chút để phủ hết khối to nhất tràn ra mép gò
-    w.islands.push({ x: x + mx0, z: z + mz0, y: y + mh, r: mr + 0.55, tier });
+    moundGroup.position.set(mx0, 0, mz0);
+    g.add(moundGroup);
+    const moundR = V.measureFootprint(moundGroup, 12, x + mx0, z + mz0).reach;
+    w.islands.push({ x: x + mx0, z: z + mz0, y: y + mh, r: moundR, tier });
   }
   // đá, bụi, cỏ — đá có va chạm
   for (let i = 0; i < randInt(3, 5); i++) {
@@ -652,7 +687,12 @@ function buildMonsterIsland(w, x, y, z, tier, r) {
     const lx = Math.cos(a) * d, lz = Math.sin(a) * d;
     deco.position.set(lx, 0, lz);
     g.add(deco);
-    if (isRockDeco) w.colliders.push({ x: x + lx, z: z + lz, r: deco.userData.hitR, y, h: deco.userData.hitH });
+    if (isRockDeco) {
+      w.colliders.push({
+        x: x + lx, z: z + lz, y, h: deco.userData.hitH,
+        foot: V.measureFootprint(deco, 8, x + lx, z + lz),
+      });
+    }
   }
   if (chance(0.5)) {
     const sc = rand(0.5, 0.8);
@@ -661,13 +701,19 @@ function buildMonsterIsland(w, x, y, z, tier, r) {
     const lx = Math.cos(a) * r * 0.6, lz = Math.sin(a) * r * 0.6;
     t.position.set(lx, 0, lz);
     g.add(t);
-    w.colliders.push({ x: x + lx, z: z + lz, r: 0.28 * sc, y, h: 3 * sc });
+    w.colliders.push({
+      x: x + lx, z: z + lz, y, h: 3 * sc,
+      foot: V.measureFootprint(t.userData.trunkMesh, 4, x + lx, z + lz),
+    });
   }
-  g.position.set(x, y, z);
-  w.group.add(g);
-  // bán kính va chạm nới rộng hơn bán kính đế đá thật — mặt cỏ trên cùng (buildRockBase) tràn mép ra ngoài
-  // đế đá một khoảng, nếu va chạm khít đúng bán kính đế thì đi tới mép cỏ nhìn thấy sẽ bị rơi hụt chân
-  w.islands.push({ x, z, y, r: r * 1.3, tier });
+  // Bán kính mặt đứng của đảo = số đo THẬT của lớp cỏ trên cùng (buildRockBase tự tính từ chính các khối nó
+  // vừa dựng, xem userData.topR) — thay cho hệ số nhân ước lượng trước đây (1.3 rồi 1.1 rồi 1.25, đều là đoán).
+  const islandR = base.userData.topR;
+  // giữ lại ĐÚNG tham chiếu object vừa push — quái dùng chung tham chiếu này (thay vì tạo object {x,z,y,r} mới
+  // với cùng giá trị) để game.js xác thực được "người chơi đang đứng lên ĐÚNG đảo này" bằng so sánh tham chiếu
+  // qua supportAt(), không phải chỉ dựa vào khoảng cách + khung độ cao (xem playerOnIsland trong game.js)
+  const islandRef = { x, z, y, r: islandR, tier };
+  w.islands.push(islandRef);
 
   const n = randInt(1, 3);
   // quái tầm xa luôn phải đi cùng ít nhất 1 quái cận chiến (không đủ chỗ nếu n=1) — random rồi xáo trộn thứ tự
@@ -689,7 +735,7 @@ function buildMonsterIsland(w, x, y, z, tier, r) {
       attempts++;
     } while (
       attempts < 14 &&
-      (w.colliders.some((c) => Math.hypot(mx - c.x, mz - c.z) < c.r + 0.7) ||
+      (w.colliders.some((c) => Math.hypot(mx - c.x, mz - c.z) < colliderReach(c) + 0.7) ||
        placedMonsters.some((p) => Math.hypot(mx - p.x, mz - p.z) < 1.2))
     );
     placedMonsters.push({ x: mx, z: mz });
@@ -716,7 +762,8 @@ function buildMonsterIsland(w, x, y, z, tier, r) {
     w.monsters.push({
       kind: isRanged ? 'ranged' : 'melee',
       mesh, hp, maxHp: hp, dead: false,
-      island: { x, z, y, r },
+      // dùng ĐÚNG tham chiếu islandRef (không tạo object mới) — xem chú thích tại chỗ push ở trên
+      island: islandRef,
       mode: 'hide',
       hpBar, hpFg,
       atkCd: 0, burstLeft: 0, burstCd: 0, idleCd: rand(2, 5),
@@ -763,10 +810,13 @@ function buildGoalIsland(w, x, y, z, heading) {
 
   g.position.set(x, y, z);
   w.group.add(g);
+  // r = 3.5 chính là bán kính mặt trụ trên cùng (`top` ở trên) — mặt cỏ người chơi đứng lên, không cần hệ số
   w.islands.push({ x, z, y, r, tier: 999 });
-  // rương to là vật rắn — không đi xuyên qua được (collider theo đúng vị trí + kích thước mới, thu nhỏ tương ứng scale 2/3)
+  // Rương đích KHÔNG cần va chạm rắn — khác rương thường (phải đánh vỡ mới lấy được), rương đích tự động
+  // nhận thưởng theo khoảng cách (xem updateGoal: hypot(pl.pos, chestX/Z) < 1.7). Nắp rương bật ngửa lên cao
+  // khiến hình khối thật vươn xa tới ~2.56 đơn vị — NẾU có va chạm rắn, ở một số hướng người chơi sẽ bị chặn
+  // vật lý TRƯỚC KHI vào được vùng bán kính 1.7 để kích hoạt nhận thưởng, không bao giờ claim được từ hướng đó.
   const chestWorldX = x + chestLocalX, chestWorldZ = z + chestLocalZ;
-  w.colliders.push({ x: chestWorldX, z: chestWorldZ, r: 1.15, y, h: 1.5 });
   // điểm bay lên = ĐÚNG TÂM vòng sáng (x, z của cả đảo) — chuẩn nhất vì vòng sáng luôn đặt tại đây
   w.goal = {
     x, y, z, chest, claimed: false,

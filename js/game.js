@@ -873,6 +873,18 @@ export class Game {
     const valid = (nx, nz) => !extraValid || extraValid(nx, nz);
     const step = spd * dt;
     let ang = desiredAng;
+    // quái ĐANG ở ngoài phạm vi hợp lệ ngay tại vị trí hiện tại (vd văng ra ngoài đảo do lần "nhảy thoát kẹt"
+    // trước đó) — mọi hướng đi khác đều bị valid() từ chối vì đích đến vẫn còn ngoài bán kính đảo, kẹt vĩnh
+    // viễn không tự quay lại được. Ưu tiên đi thẳng về tâm đảo cho tới khi vào lại phạm vi hợp lệ.
+    if (extraValid && m.island && !extraValid(m.mesh.position.x, m.mesh.position.z)) {
+      ang = Math.atan2(m.island.x - m.mesh.position.x, m.island.z - m.mesh.position.z);
+      m.mesh.position.x += Math.sin(ang) * step;
+      m.mesh.position.z += Math.cos(ang) * step;
+      m.mesh.rotation.y = ang;
+      m.stuckT = 0;
+      m.moving = true;
+      return true;
+    }
     if (m.stuckT > 0.4) {
       let found = false;
       for (let k = 0; k < 12 && !found; k++) {
@@ -909,6 +921,24 @@ export class Game {
   }
 
   // ---------- Hỗ trợ va chạm ----------
+  // Kiểm tra điểm (dx, dz) — toạ độ ĐÃ TRỪ tâm vật — có nằm trong đa giác lồi `foot` (nới rộng thêm `pad`
+  // cho bán kính thân người) hay không. `foot` do V.measureFootprint dựng từ chính hình học đã render:
+  // hình chữ nhật/vuông (4 cạnh, xoay theo vật) cho khối hộp, lục giác (6 cạnh) cho vật tròn.
+  //
+  // Đa giác lồi = giao của các nửa mặt phẳng dot(p, n_k) <= d_k. Điểm ở trong khi MỌI cạnh đều chưa bị vượt.
+  // Trả về null nếu ở ngoài; nếu ở trong thì trả về cạnh bị lún NÔNG NHẤT — đó chính là hướng thoát ra ngắn
+  // nhất, dùng để đẩy người chơi ra khỏi vật theo phương vuông góc với đúng mặt bên mà họ chạm vào.
+  footHit(foot, dx, dz, pad) {
+    let minPen = Infinity, nx = 0, nz = 0;
+    for (let k = 0; k < foot.normals.length; k++) {
+      const n = foot.normals[k];
+      const pen = foot.dists[k] + pad - (dx * n.x + dz * n.z);
+      if (pen <= 0) return null;
+      if (pen < minPen) { minPen = pen; nx = n.x; nz = n.z; }
+    }
+    return { pen: minPen, nx, nz };
+  }
+
   // trả về mặt đứng cao nhất dưới chân trong khoảng [minY, maxY], kèm nguồn
   supportAt(x, z, minY, maxY) {
     const w = this.world;
@@ -921,8 +951,8 @@ export class Game {
     }
     // vật thể lơ lửng
     for (const p of w.platforms) {
-      if (Math.abs(x - p.x) <= p.hw + 0.3 && Math.abs(z - p.z) <= p.hd + 0.3 &&
-          p.y >= minY && p.y <= maxY && (top === null || p.y > top)) { top = p.y; src = { kind: 'plat', plat: p }; }
+      if (p.y >= minY && p.y <= maxY && (top === null || p.y > top) &&
+          this.footHit(p.foot, x - p.x, z - p.z, 0.3)) { top = p.y; src = { kind: 'plat', plat: p }; }
     }
     // đảo quái / đảo đích
     for (const isl of w.islands) {
@@ -931,8 +961,8 @@ export class Game {
     }
     // đứng trên rương
     for (const c of w.chests) {
-      if (!c.broken && Math.abs(x - c.x) <= c.hw + 0.25 && Math.abs(z - c.z) <= c.hd + 0.25 &&
-          c.top >= minY && c.top <= maxY && (top === null || c.top > top)) { top = c.top; src = { kind: 'chest' }; }
+      if (!c.broken && c.top >= minY && c.top <= maxY && (top === null || c.top > top) &&
+          this.footHit(c.foot, x - c.x, z - c.z, 0.25)) { top = c.top; src = { kind: 'chest' }; }
     }
     return top === null ? null : { top, src };
   }
@@ -1020,10 +1050,11 @@ export class Game {
       }
     }
 
-    // 2) Vật thể lơ lửng: chặn 4 mặt ngang + đập đầu vào đáy khi nhảy từ dưới lên
+    // 2) Vật thể lơ lửng: chặn các mặt bên + đập đầu vào đáy khi nhảy từ dưới lên
     for (const p of w.platforms) {
       const dxp = pl.pos.x - p.x, dzp = pl.pos.z - p.z;
-      if (Math.abs(dxp) >= p.hw + 0.3 || Math.abs(dzp) >= p.hd + 0.3) continue;
+      const hit = this.footHit(p.foot, dxp, dzp, 0.3);
+      if (!hit) continue;
       const bottom = p.y - (p.depth || 1.2) - 0.05;
       // đập đầu vào mặt dưới khi đang bay lên
       if (pl.vel.y > 0 && prevY + 1.65 <= bottom + 0.06 && pl.pos.y + 1.65 > bottom) {
@@ -1037,10 +1068,9 @@ export class Game {
       // ra rìa trước khi phần "đáp đất" bên dưới kịp bắt được, khiến người chơi lọt qua rìa và rơi xuyên xuống.
       const landingFromAbove = prevY >= p.y - 0.12;
       if (!landingFromAbove && pl.pos.y < p.y - 0.12 && pl.pos.y + 1.6 > bottom) {
-        const oxp = (p.hw + 0.3) - Math.abs(dxp);
-        const ozp = (p.hd + 0.3) - Math.abs(dzp);
-        if (oxp < ozp) pl.pos.x = p.x + Math.sign(dxp || 0.01) * (p.hw + 0.3);
-        else pl.pos.z = p.z + Math.sign(dzp || 0.01) * (p.hd + 0.3);
+        // đẩy ra theo pháp tuyến của đúng mặt bên đang chạm, quãng đường ngắn nhất để thoát khỏi đa giác
+        pl.pos.x += hit.nx * hit.pen;
+        pl.pos.z += hit.nz * hit.pen;
       }
     }
 
@@ -1055,26 +1085,29 @@ export class Game {
       }
     }
 
-    // 4) Cột đá + thân cây (vật cản hình trụ)
+    // 4) Vật cản đứng: cột đá (trụ tròn) + thân cây/tảng đá/rương kho báu (đa giác đo từ hình học thật)
     for (const col of w.colliders || []) {
-      const dx = pl.pos.x - col.x, dz = pl.pos.z - col.z;
-      const d = Math.hypot(dx, dz) || 0.01;
-      if (d < col.r + 0.3 && pl.pos.y < col.y + col.h && pl.pos.y + 1.6 > col.y) {
-        const push = col.r + 0.3 - d;
-        pl.pos.x += (dx / d) * push;
-        pl.pos.z += (dz / d) * push;
+      if (pl.pos.y >= col.y + col.h || pl.pos.y + 1.6 <= col.y) continue;
+      if (col.foot) {
+        const hit = this.footHit(col.foot, pl.pos.x - col.x, pl.pos.z - col.z, 0.3);
+        if (hit) { pl.pos.x += hit.nx * hit.pen; pl.pos.z += hit.nz * hit.pen; }
+      } else {
+        const dx = pl.pos.x - col.x, dz = pl.pos.z - col.z;
+        const d = Math.hypot(dx, dz) || 0.01;
+        if (d < col.r + 0.3) {
+          const push = col.r + 0.3 - d;
+          pl.pos.x += (dx / d) * push;
+          pl.pos.z += (dz / d) * push;
+        }
       }
     }
 
-    // rương chắn đường: đẩy ngang ra
+    // rương chắn đường: đẩy ngang ra theo đúng mặt bên đang chạm
     for (const c of w.chests) {
       if (c.broken) continue;
-      const dx = pl.pos.x - c.x, dz = pl.pos.z - c.z;
-      if (Math.abs(dx) < c.hw + 0.3 && Math.abs(dz) < c.hd + 0.3 &&
-          pl.pos.y < c.top - 0.1 && pl.pos.y + 1.6 > c.y) {
-        if (Math.abs(dx) > Math.abs(dz)) pl.pos.x = c.x + Math.sign(dx) * (c.hw + 0.31);
-        else pl.pos.z = c.z + Math.sign(dz) * (c.hd + 0.31);
-      }
+      if (pl.pos.y >= c.top - 0.1 || pl.pos.y + 1.6 <= c.y) continue;
+      const hit = this.footHit(c.foot, pl.pos.x - c.x, pl.pos.z - c.z, 0.3);
+      if (hit) { pl.pos.x += hit.nx * hit.pen; pl.pos.z += hit.nz * hit.pen; }
     }
 
     if (pl.grounded) {
@@ -1150,6 +1183,12 @@ export class Game {
   // ---------- Quái vật ----------
   updateMonsters(dt) {
     const pl = this.player, w = this.world;
+    // Đảo người chơi ĐANG THẬT SỰ đứng lên (nếu có) — xác thực bằng đúng mặt nâng đỡ thật sự (supportAt), không
+    // phải khoảng cách+khung độ cao. Tính DUY NHẤT 1 lần mỗi khung hình (người chơi chỉ đứng trên 1 mặt tại một
+    // thời điểm) rồi so sánh THAM CHIẾU với m.island của từng quái — loại bỏ hoàn toàn trường hợp vật thể lơ
+    // lửng khác nằm ngang tầm đảo (trong khung ±2.5 cũ) bị tính nhầm là "đang đứng trên đảo".
+    const standSup = this.supportAt(pl.pos.x, pl.pos.z, pl.pos.y - 0.35, pl.pos.y + 0.35);
+    const playerStandIsland = standSup && standSup.src.kind === 'island' ? standSup.src.isl : null;
     for (const m of this.world.monsters) {
       if (m.dead) {
         if (m.hpBar) m.hpBar.visible = false;
@@ -1168,8 +1207,12 @@ export class Game {
       const dx = pl.pos.x - m.mesh.position.x;
       const dz = pl.pos.z - m.mesh.position.z;
       const distP = Math.hypot(dx, dz);
-      const playerNear = Math.hypot(pl.pos.x - m.island.x, pl.pos.z - m.island.z) < m.island.r + 1.5 &&
-                         Math.abs(pl.pos.y - m.island.y) < 2.5;
+      // playerOnIsland: người chơi phải THẬT SỰ được nâng đỡ bởi ĐÚNG đảo này (so tham chiếu với standSup tính
+      // ở trên) mới được tính là mục tiêu để quái ra đòn. Trước đây dùng khoảng cách+khung độ cao (< r-0.2 và
+      // lệch Y < 2.5) — vừa sai khi quái đứng sát mép đảo với người chơi ở vật thể lơ lửng kế bên (2 điểm có
+      // thể gần nhau theo phương ngang dù khác mặt đứng), vừa sai khi có vật thể khác nằm NGANG TẦM đảo (trong
+      // khung ±2.5) mà người chơi thật ra đang đứng trên đó, không phải trên đảo.
+      const playerOnIsland = playerStandIsland === m.island;
 
       if (m.kind === 'melee') {
         m.atkCd = Math.max(0, m.atkCd - dt);
@@ -1198,7 +1241,9 @@ export class Game {
           if (!m.attackHit && t >= 0.35) {
             m.attackHit = true;
             const stillNear = Math.hypot(pl.pos.x - m.mesh.position.x, pl.pos.z - m.mesh.position.z) < 1.6;
-            if (stillNear && this.state === 'play') this.damagePlayer(CFG.monsters.meleeDmg, 'monster');
+            // chốt an toàn cuối: dù đã bắt đầu vung (windup lỡ khởi động khi người chơi vừa đứng trên đảo),
+            // nếu đúng lúc trúng đòn người chơi đã nhảy khỏi đảo thì KHÔNG tính sát thương
+            if (stillNear && playerOnIsland && this.state === 'play') this.damagePlayer(CFG.monsters.meleeDmg, 'monster');
           }
         } else {
           m.mesh.rotation.x = 0;
@@ -1207,7 +1252,12 @@ export class Game {
         }
 
         const islandBound = (nx, nz) => Math.hypot(nx - m.island.x, nz - m.island.z) < m.island.r - 0.2;
-        if (playerNear && this.state === 'play') {
+        // Dùng playerOnIsland (đứng THẬT trên đảo) làm điều kiện DUY NHẤT để bắt đầu để ý/đuổi theo — không
+        // còn dùng playerNear cho việc này nữa. Trước đây quái đã chạy ra sát mép đảo và chĩa càng/vũ khí
+        // hướng về người chơi ngay khi họ CÒN Ở VẬT THỂ KẾ BÊN (chưa nhảy sang đảo) — nếu 2-3 quái cùng
+        // dồn ra đúng mép gần người chơi nhất, chúng chắn ngay điểm hạ cánh, cảm giác như không còn chỗ nhảy
+        // vào. Giờ quái chỉ rời trạng thái lang thang khi người chơi đã thật sự đặt chân lên đảo.
+        if (playerOnIsland && this.state === 'play') {
           // đuổi theo người chơi
           if (distP > 1.1) {
             this.monsterStep(m, Math.atan2(dx, dz), 1.9, dt, islandBound);
@@ -1240,10 +1290,8 @@ export class Game {
           m.mesh.userData.staffArm.rotation.x = m.recoilT > 0 ? -Math.sin((m.recoilT / 0.25) * Math.PI) * 0.9 : 0;
         }
 
-        // quái tầm xa — chỉ bắn liên tục khi người chơi ĐÃ đặt chân lên đảo
+        // quái tầm xa — chỉ bắn liên tục khi người chơi ĐÃ đặt chân lên đảo (playerOnIsland tính chung ở trên)
         m.burstCd = Math.max(0, m.burstCd - dt);
-        const playerOnIsland = Math.hypot(pl.pos.x - m.island.x, pl.pos.z - m.island.z) < m.island.r - 0.2 &&
-                               Math.abs(pl.pos.y - m.island.y) < 2.5;
         const moveTo = (tx, tz, spd) => {
           const vx = tx - m.mesh.position.x, vz = tz - m.mesh.position.z;
           const vd = Math.hypot(vx, vz);
@@ -1557,7 +1605,8 @@ export class Game {
       if (h === undefined || this.world.water.has(key)) return true;
       if (curH !== undefined && Math.abs(h - curH) > 1) return true;
       for (const c of this.world.colliders || []) {
-        if (Math.hypot(x - c.x, z - c.z) < c.r + 0.18) return true;
+        if (c.foot) { if (this.footHit(c.foot, x - c.x, z - c.z, 0.18)) return true; }
+        else if (Math.hypot(x - c.x, z - c.z) < c.r + 0.18) return true;
       }
       return false;
     };
