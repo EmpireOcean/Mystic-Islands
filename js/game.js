@@ -224,7 +224,11 @@ export class Game {
       this.scene.remove(this.world.group);
       this.world.group.traverse((o) => { o.geometry?.dispose?.(); });
     }
-    this.world = generateLevel(level);
+    this.world = generateLevel(level, this.save.prevArchetype, this.save.prevShrineTier);
+    // lưu lại để lần tải level SAU né random ra trùng y hệt đảo/tế đàn vừa dùng (xem archetypeForLevel trong
+    // config.js) — không cần ép persist() ngay, sẽ được lưu cùng lượt persist gần nhất khác (vàng/kim cương...)
+    this.save.prevArchetype = this.world.archetype;
+    this.save.prevShrineTier = this.world.shrineTier;
     this.scene.add(this.world.group);
 
     // nhân vật
@@ -243,8 +247,10 @@ export class Game {
     this.gunMesh.rotation.x = Math.PI / 2;
 
     const p = this.world.portal;
+    // portalTopY = mặt bậc TRÊN CÙNG của bệ đá tế đàn (xem registerDaisSteps trong world.js). Hồi sinh ở p.y
+    // (mặt đất dưới chân bệ) sẽ khiến nhân vật đứng lún trong lòng bệ đá.
     this.player = {
-      pos: new THREE.Vector3(p.x, p.y, p.z),
+      pos: new THREE.Vector3(p.x, this.world.portalTopY ?? p.y, p.z),
       vel: new THREE.Vector3(),
       yaw: 0, grounded: true,
       lastPlat: null,          // vật thể lơ lửng đứng gần nhất {y,tier,x,z}
@@ -283,7 +289,7 @@ export class Game {
   startSpawnEffect() {
     for (const r of this.spawnEffect?.rings || []) this.scene.remove(r);
     const p = this.world.portal;
-    this.spawnEffect = { t: 0, ringTimer: 0, rings: [], cx: p.x, cz: p.z, baseY: p.y };
+    this.spawnEffect = { t: 0, ringTimer: 0, rings: [], cx: p.x, cz: p.z, baseY: this.world.portalTopY ?? p.y };
     this.char.traverse((o) => { if (o.material) { o.material.transparent = true; o.material.opacity = 0; } });
   }
 
@@ -1074,8 +1080,12 @@ export class Game {
       }
     }
 
-    // 3) Thành đảo quái/đảo đích (hình trụ): đẩy ra khi va vào thành bên
+    // 3) Thành đảo quái/đảo đích (hình trụ): đẩy ra khi va vào thành bên.
+    // BỎ QUA bậc bệ đá tế đàn (isl.decor): đó là bậc thang cao 0.24 để BƯỚC LÊN, không phải vách đảo dựng đứng.
+    // Nếu tính vào đây, người chơi đứng dưới chân bệ sẽ bị đẩy văng ra mỗi khi tiến vào, thành ra chỉ đi xuống
+    // được còn muốn lên thì phải nhảy.
     for (const isl of w.islands) {
+      if (isl.decor) continue;
       const dxi = pl.pos.x - isl.x, dzi = pl.pos.z - isl.z;
       const di = Math.hypot(dxi, dzi);
       if (di < isl.r + 0.3 && pl.pos.y < isl.y - 0.15 && pl.pos.y > isl.y - 3.5) {
@@ -1568,15 +1578,62 @@ export class Game {
     for (const c of this.world?.coins || []) {
       if (!c.taken) { c.mesh.rotation.y += dt * 2.5; c.mesh.position.y = c.y + Math.sin(t * 2 + c.x) * 0.08; }
     }
-    // cổng sáng nhấp nháy + trụ ánh sáng thở nhẹ
+    // sàn tế đàn nhấp nháy + trụ ánh sáng thở nhẹ. Biên độ phải bám sát độ sáng gốc dựng trong buildPortal
+    // (sàn 0.55, trụ 0.45) — trước đây ghi đè xuống 0.06-0.18 nên trụ sáng lúc nào cũng mờ tịt như dải khói.
     for (const p of this.world?.portals || []) {
-      if (p.userData.disc) p.userData.disc.material.opacity = 0.45 + Math.sin(t * 2.4) * 0.18;
-      if (p.userData.pillar) p.userData.pillar.material.opacity = 0.12 + Math.sin(t * 1.8) * 0.06;
+      if (p.userData.disc) p.userData.disc.material.opacity = 0.62 + Math.sin(t * 2.4) * 0.16;
+      if (p.userData.pillar) p.userData.pillar.material.opacity = 0.42 + Math.sin(t * 1.8) * 0.09;
+    }
+    // Tế đàn dựng theo bản thiết kế voxel (altar.js): vòng năng lượng quay, hạt bay lên xoáy vào trong,
+    // khối phản trọng lực bồng bềnh, trụ sáng thở nhẹ.
+    // Lúc nhân vật truyền tống, HẠ hẳn cường độ trụ sáng: nếu để nguyên, chùm sáng trắng xoá che mất cảnh
+    // nhân vật thu nhỏ và bay lên. Hạ trong 0.5s đầu rồi giữ, tự khôi phục khi rời trạng thái 'beam'.
+    const beamDim = this.state === 'beam'
+      ? 1 - Math.min(1, (this.beamT ?? 0) / 0.5) * 0.8
+      : 1;
+    for (const a of this.world?.altars || []) {
+      const fx = a.fx;
+      for (const r of fx.rings) r.rotation.y += r.userData.speed * dt * 0.72;
+      for (let i = 0; i < fx.floaters.length; i++) fx.floaters[i].position.y += Math.sin(t * 1.3 + i) * dt * 0.12;
+      for (const p of fx.particles) {
+        const d = p.userData;
+        p.position.y += d.speed * dt;
+        if (p.position.y > d.y0 + d.top) p.position.y = d.y0;
+        const life = (p.position.y - d.y0) / d.top;
+        const aa = d.a + t * 0.35, rad = d.r * (1 - life * 0.6);
+        p.position.x = Math.cos(aa) * rad;
+        p.position.z = Math.sin(aa) * rad;
+      }
+      for (const bl of fx.beamLayers || []) {
+        // lớp vỏ ngoài cùng thở nhẹ theo nhịp, các lớp trong giữ nguyên độ mờ gốc; tất cả cùng nhân beamDim
+        const pulse = bl.mesh === fx.beam ? Math.sin(t * 3) * 0.05 : 0;
+        bl.mesh.material.opacity = (bl.base + pulse) * beamDim;
+      }
+      if (fx.coreLight) fx.coreLight.intensity = fx.coreLightBase * beamDim;
     }
     // vật trang trí lơ lửng bồng bềnh
     for (const f of this.world?.floaters || []) {
       f.position.y = f.userData.baseY + Math.sin(t * 0.5 + f.userData.bobPhase) * 0.8;
       f.rotation.y += dt * 0.08;
+    }
+    // đá bay quanh tế đàn "lắc nhẹ" tại chỗ (cấp 6-7) — mỗi viên dao động theo đúng 1 trục (lên/xuống HOẶC
+    // trái/phải) quanh vị trí gốc, trong phạm vi nhỏ
+    for (const j of this.world?.jitters || []) {
+      const off = Math.sin(t * j.speed + j.phase) * j.amp;
+      const p = j.base;
+      j.mesh.position.set(
+        p.x + (j.axis === 'x' ? off : 0),
+        p.y + (j.axis === 'y' ? off : 0),
+        p.z + (j.axis === 'z' ? off : 0)
+      );
+    }
+    // vòng đá bay xoay quanh trụ sáng chính (tế đàn cấp 8-9) — từ cấp 9 bán kính quỹ đạo co giãn chậm theo
+    // chu kỳ dài, tạo cảm giác thi thoảng "phình ra" rồi thu lại thay vì đứng yên
+    for (const o of this.world?.orbiters || []) {
+      o.angle += dt * o.speed;
+      const r = o.baseR + Math.sin(t * o.pulseSpeed + o.pulsePhase) * o.pulseAmp;
+      o.mesh.position.set(o.cx + Math.cos(o.angle) * r, o.y, o.cz + Math.sin(o.angle) * r);
+      o.mesh.rotation.y = -o.angle + Math.PI / 2;
     }
     // hạt lấp lánh quanh kho báu
     for (const sp of this.world?.sparkles || []) {

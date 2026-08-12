@@ -766,114 +766,494 @@ export function buildBush() {
   return g;
 }
 
-// ===== Cột đá cổ — trả về cả chiều cao va chạm =====
-export function buildColumn(state) {
+// ===== Cột trụ tế đàn — XẾP TỪ KHỐI LẬP PHƯƠNG (đúng phong cách voxel của ảnh tham khảo, thay cho thân trụ
+// tròn có rãnh kiểu Hy Lạp trước đây). crystalColor: gắn 1 khối tinh thể phát sáng lơ lửng trên đỉnh (không
+// gắn cho cột đổ — không có "đỉnh" rõ ràng). capital: random CÓ/KHÔNG đầu cột to bè ra kiểu trụ Ai Cập cổ đại.
+// accentColor: khối điểm xuyết phát sáng (vàng/xanh) chèn vào thân cột ở các cấp cao. =====
+export function buildColumn(state, opts = {}) {
+  const {
+    crystalColor = null, capital = false, accentColor = null,
+    stonePalette = { main: 0x8f8b6e, alt: 0x7c7860, dark: 0x666352 },
+  } = opts;
   const g = new THREE.Group();
-  const stone = 0xd9cba8, stoneDark = 0xc4b494;
-  const base = box(1.3, 0.35, 1.3, stoneDark); base.position.y = 0.17;
+  const stone = stonePalette.main, stoneAlt = stonePalette.alt, stoneDark = stonePalette.dark;
+  const cw = 0.62;    // bề ngang thân cột
+  const unit = 0.58;  // chiều cao mỗi khối xếp chồng
+
+  // bệ vuông dưới chân — thấp, bước qua được nên KHÔNG tính vào trụ va chạm
+  const base = box(1.05, 0.3, 1.05, stoneDark); base.position.y = 0.15;
   g.add(base);
-  const shaft = (h) => {
-    const s = cyl(0.42, 0.5, h, stone, 10);
-    for (let i = 0; i < 4; i++) {
-      const groove = box(0.08, h * 0.85, 0.08, stoneDark);
-      const a = (i / 4) * Math.PI * 2;
-      groove.position.set(Math.cos(a) * 0.45, 0, Math.sin(a) * 0.45);
-      s.add(groove);
+
+  // KHÚC SÁNG trên thân cột, cao hSeg (có thể bằng 1, 2 hoặc 3 khối đá chồng lên nhau — dựng liền một khối
+  // chứ không chắp từng đoạn ngắn). Ánh sáng chiếm TRỌN mặt cắt, hoặc chỉ 1/4, hoặc 3/4: chia tiết diện thân
+  // cột làm 4 phần tư rồi gán phần sáng/phần đá, đúng như thiết kế.
+  const addLitSection = (yBottom, hSeg) => {
+    const yc = yBottom + hSeg / 2;
+    const litQuads = pick([4, 1, 3]);
+    if (litQuads === 4) {
+      // thóp vào một chút để khối đá trên/dưới nhô ra ôm lấy — sáng phát từ TRONG lòng cột
+      const lit = new THREE.Mesh(
+        new THREE.BoxGeometry(cw * 0.84, hSeg, cw * 0.84),
+        new THREE.MeshBasicMaterial({ color: accentColor })
+      );
+      lit.position.y = yc;
+      g.add(lit);
+    } else {
+      const q = cw / 2;
+      const quads = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+      for (let s = quads.length - 1; s > 0; s--) {   // trộn để phần sáng rơi vào góc ngẫu nhiên
+        const r = randInt(0, s);
+        [quads[s], quads[r]] = [quads[r], quads[s]];
+      }
+      quads.forEach(([qx, qz], qi) => {
+        const isLit = qi < litQuads;
+        const size = isLit ? q * 0.96 : q;   // phần sáng thụt vào chút xíu cho thấy rõ mạch nối với đá
+        const b = isLit
+          ? new THREE.Mesh(
+            new THREE.BoxGeometry(size, hSeg, size),
+            new THREE.MeshBasicMaterial({ color: accentColor })
+          )
+          : box(size, hSeg, size, chance(0.32) ? stoneAlt : stone);
+        b.position.set((qx * q) / 2, yc, (qz * q) / 2);
+        g.add(b);
+      });
     }
-    return s;
+    const halo = new THREE.Mesh(
+      new THREE.BoxGeometry(cw * 1.14, hSeg * 1.03, cw * 1.14),
+      new THREE.MeshBasicMaterial({
+        color: accentColor, transparent: true, depthWrite: false,
+        opacity: litQuads === 1 ? 0.14 : litQuads === 3 ? 0.26 : 0.32,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    halo.position.y = yc;
+    g.add(halo);
   };
-  let hitH = 0.4; // chiều cao khối va chạm
+
+  // Xếp n khối chồng lên nhau từ độ cao y0; xen kẽ ngẫu nhiên 2 tông đá cho mặt trụ lốm đốm như ảnh.
+  // glow = {from, len}: bỏ trống len khối liên tiếp kể từ khối thứ `from` để nhường chỗ cho khúc sáng.
+  const stack = (n, y0, glow = null) => {
+    for (let i = 0; i < n; i++) {
+      if (glow && accentColor && i >= glow.from && i < glow.from + glow.len) continue;
+      const b = box(cw, unit, cw, chance(0.32) ? stoneAlt : stone);
+      b.position.y = y0 + unit * (i + 0.5);
+      b.rotation.y = rand(-0.04, 0.04); // lệch rất nhẹ — khối xếp tay, không thẳng tắp như đúc
+      g.add(b);
+    }
+    if (glow && accentColor) addLitSection(y0 + unit * glow.from, unit * glow.len);
+    return y0 + unit * n;
+  };
+
+  // khúc sáng dài 1-3 khối, luôn nằm trong khoảng giữa thân (chừa ít nhất 1 khối đá ở chân và ở đỉnh)
+  const glowRun = (n) => {
+    if (!accentColor) return null;
+    const len = Math.min(randInt(1, 3), n - 2);
+    return { from: randInt(1, Math.max(1, n - 1 - len)), len: Math.max(1, len) };
+  };
+
+  let hitH;
   if (state === 0) {
-    const s = shaft(3.8); s.position.y = 2.25; g.add(s);
-    const cap = box(1.15, 0.3, 1.15, stoneDark); cap.position.y = 4.3; g.add(cap);
-    const cap2 = box(0.95, 0.2, 0.95, stone); cap2.position.y = 4.55; g.add(cap2);
-    hitH = 4.6;
+    const n = randInt(5, 6);
+    let top = stack(n, 0.3, glowRun(n));
+    if (capital) {
+      // đầu cột bè ra 2 bậc — dáng trụ Ai Cập cổ đại, vẫn giữ khối vuông
+      const cap1 = box(cw + 0.24, 0.26, cw + 0.24, stoneAlt); cap1.position.y = top + 0.13;
+      const cap2 = box(cw + 0.4, 0.2, cw + 0.4, stoneDark); cap2.position.y = top + 0.36;
+      g.add(cap1, cap2);
+      top += 0.46;
+    }
+    hitH = top;
   } else if (state === 1) {
-    const s = shaft(1.9); s.position.y = 1.3; g.add(s);
-    const jag = box(0.5, 0.3, 0.5, stone); jag.position.y = 2.35; jag.rotation.y = 0.5; g.add(jag);
-    hitH = 2.4;
+    // cột gãy dở: thân cụt, khối trên cùng lệch hẳn sang bên như sắp rơi
+    const nb = randInt(2, 3);
+    const top = stack(nb, 0.3, nb >= 3 ? { from: 1, len: 1 } : null);
+    const chip = box(cw * 0.7, unit * 0.6, cw * 0.7, stoneAlt);
+    chip.position.set(rand(-0.16, 0.16), top + unit * 0.3, rand(-0.16, 0.16));
+    chip.rotation.y = rand(0, Math.PI);
+    g.add(chip);
+    hitH = top + unit * 0.6;
   } else {
-    const s = shaft(1.2); s.position.y = 0.95; g.add(s);
-    const f = cyl(0.4, 0.46, 2.2, stone, 10);
-    const fx = rand(1.2, 1.8), fz = rand(0.8, 1.4);
-    f.position.set(fx, 0.5, fz);
-    f.rotation.z = Math.PI / 2 + rand(-0.25, 0.25);
+    // cột đổ: gốc cụt 1 khối + thân nằm ngang trên đất
+    const top = stack(1, 0.3);
+    const fx = rand(1.1, 1.7), fz = rand(0.7, 1.3);
+    const f = box(1.9, cw, cw, stone);
+    f.position.set(fx, cw / 2, fz);
     f.rotation.y = rand(0, Math.PI);
     g.add(f);
-    hitH = 1.6;
-    // Phần thân đổ nằm ngang: khối TRỤ NẰM NGANG nên mặt cắt ngang là HÌNH CHỮ NHẬT (dài 2.2 × rộng ~0.92),
-    // trước đây gán trụ tròn r=1.15 nên hai bên sườn phình ra thành tường vô hình rộng gấp đôi thân cột thật.
-    // Trục nằm sau khi xoay chồng 2 trục (z rồi y) không suy ra được bằng công thức đơn giản → đo hình chữ nhật
-    // bao nhỏ nhất trực tiếp từ hình học thật (mesh f đã mang đầy đủ phép xoay).
-    g.userData.fallen = { mesh: f, x: fx, z: fz, h: 0.95 };
+    // vài mảnh vỡ rơi quanh gốc
+    for (let i = 0; i < randInt(1, 3); i++) {
+      const chunk = box(rand(0.2, 0.34), rand(0.18, 0.3), rand(0.2, 0.34), stoneAlt);
+      chunk.position.set(rand(-1.1, 1.1), 0.12, rand(-1.1, 1.1));
+      chunk.rotation.y = rand(0, Math.PI);
+      g.add(chunk);
+    }
+    hitH = top;
+    // Thân nằm ngang là khối hộp CÓ XOAY — đo hình chữ nhật bao nhỏ nhất trực tiếp từ hình học thật thay vì
+    // suy ra bằng công thức (mesh f đã mang sẵn phép xoay), tránh tường va chạm phình rộng gấp đôi thân thật.
+    g.userData.fallen = { mesh: f, x: fx, z: fz, h: cw };
   }
   g.userData.hitH = hitH;
-  // Bán kính va chạm = bán kính THÂN CỘT thật (cyl 0.42→0.5), lấy đúng từ tham số hình học đã dựng ở trên.
-  // Bệ đá vuông 1.3×1.3 dưới chân chỉ cao 0.35 (bước qua được) nên không tính vào trụ va chạm — nếu tính,
-  // trụ phải phình lên 0.92 và tạo tường vô hình cao suốt thân cột ở chỗ mắt chỉ thấy khoảng không.
-  g.userData.hitR = 0.5;
+  // Bán kính va chạm = nửa đường chéo thân cột vuông (cw), đúng theo hình khối đã dựng ở trên
+  g.userData.hitR = cw * 0.72;
+  if (crystalColor && state !== 2) {
+    const shard = new THREE.Mesh(
+      new THREE.BoxGeometry(0.26, 0.26, 0.26),
+      new THREE.MeshBasicMaterial({ color: crystalColor })
+    );
+    shard.position.y = hitH + 0.34;
+    shard.rotation.y = rand(0, Math.PI / 4);
+    g.add(shard);
+  }
   return g;
 }
 
-// ===== Cổng truyền tống: mâm đá chạm khắc + vòng sáng + trụ ánh sáng hắt lên =====
-export function buildPortal(color = 0x7fd8e8, scale = 1) {
-  const g = new THREE.Group();
-  const stone = 0xcfc2a2, stoneDark = 0xb0a488;
-
-  // mâm đá tròn làm bệ đỡ — ánh sáng hắt lên từ chính mâm này
-  const platter = cyl(1.5 * scale, 1.62 * scale, 0.16, stone, 26);
-  platter.position.y = 0.08;
-  platter.receiveShadow = true;
-  g.add(platter);
-  // rãnh khắc tròn đồng tâm
-  const groove = new THREE.Mesh(
-    new THREE.TorusGeometry(1.32 * scale, 0.025 * scale, 6, 30),
-    new THREE.MeshLambertMaterial({ color: stoneDark })
-  );
-  groove.rotation.x = -Math.PI / 2; groove.position.y = 0.165;
-  g.add(groove);
-  // hoa văn chạm khắc quanh viền: khối chữ nhật xen kẽ chấm tròn
-  const nCarve = 14;
-  for (let i = 0; i < nCarve; i++) {
-    const a = (i / nCarve) * Math.PI * 2;
-    const r = 1.44 * scale;
-    if (i % 2 === 0) {
-      const rune = box(0.14 * scale, 0.035, 0.07 * scale, stoneDark);
-      rune.position.set(Math.cos(a) * r, 0.168, Math.sin(a) * r);
-      rune.rotation.y = -a + Math.PI / 2;
-      g.add(rune);
-    } else {
-      const dot = cyl(0.045 * scale, 0.045 * scale, 0.035, stoneDark, 8);
-      dot.position.set(Math.cos(a) * r, 0.168, Math.sin(a) * r);
-      g.add(dot);
+// ===== Nền tảng dựng mọi bệ đá tế đàn theo phong cách VOXEL: chọn các ô LƯỚI VUÔNG nằm trong dải bán kính
+// [rIn, rOut] — cho ra đường tròn "răng cưa" đúng kiểu khối hộp như ảnh tham khảo, thay cho đĩa trụ trơn =====
+const shrineBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+function ringCells(rIn, rOut, cell) {
+  const out = [];
+  const n = Math.ceil(rOut / cell);
+  for (let gx = -n; gx <= n; gx++) {
+    for (let gz = -n; gz <= n; gz++) {
+      const x = (gx + 0.5) * cell, z = (gz + 0.5) * cell;
+      const dist = Math.hypot(x, z);
+      if (dist < rIn || dist > rOut) continue;
+      out.push({ x, z, dist });
     }
   }
+  return out;
+}
+// Gộp cả cụm khối vào 1 InstancedMesh — bệ đá tế đàn có cả trăm khối, dựng Mesh rời từng khối sẽ tốn quá
+// nhiều draw call (mỗi level có 2 tế đàn: cổng khởi đầu + đảo đích).
+function addBlockCluster(group, list, color, { glow = false, opacity = 1 } = {}) {
+  if (!list.length) return null;
+  const mat = glow
+    ? new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity })
+    : new THREE.MeshLambertMaterial({ color, map: objTexFor(color) });
+  const im = new THREE.InstancedMesh(shrineBoxGeo, mat, list.length);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  list.forEach((b, i) => {
+    q.setFromEuler(new THREE.Euler(0, b.ry || 0, 0));
+    p.set(b.x, b.y, b.z);
+    s.set(b.w, b.h, b.d);
+    m4.compose(p, q, s);
+    im.setMatrixAt(i, m4);
+  });
+  if (!glow) { im.castShadow = true; im.receiveShadow = true; }
+  group.add(im);
+  return im;
+}
 
-  const disc = new THREE.Mesh(
-    new THREE.CircleGeometry(1.1 * scale, 28),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55 })
-  );
-  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.18;
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(1.15 * scale, 0.1 * scale, 8, 28),
+// ===== Mặt cỏ VOXEL cho đảo đích — lưới khối vuông cắt theo bán kính r, thay cho đĩa trụ trơn trước đây
+// (đĩa trơn là mảng duy nhất không theo phong cách khối hộp trên toàn đảo). Cắt ở r - nửa ô nên mép khối nhô
+// ra đúng bằng bán kính va chạm r, mép nhìn thấy trùng đúng mép đứng được. =====
+export function buildIslandTopDisc(r, grassColor = 0xa8c98a, thickness = 0.5) {
+  const g = new THREE.Group();
+  const cell = 0.62;
+  const blocks = ringCells(0, r - cell * 0.5, cell).map((c) => ({
+    x: c.x, z: c.z, y: -thickness / 2, w: cell, h: thickness, d: cell,
+  }));
+  addBlockCluster(g, blocks, grassColor);
+  return g;
+}
+
+// ===== Vành đá xếp theo CUNG TRÒN: từng viên đặt dọc chu vi và XOAY theo phương tiếp tuyến, xen kẽ một số
+// viên xoay chéo hẳn. Đây mới là thứ tạo cảm giác "một loạt viên đá vây thành hình tròn" — cách cũ (xếp khối
+// theo lưới ô vuông rồi cắt tròn) chỉ cho ra một mảng ô vuông bị gọt mép, mọi khối cùng một chiều. =====
+function ringStones(rIn, rOut, yTop, list, { angleOffset = 0, mergeChance = 0.24 } = {}) {
+  // Thu dải vào mỗi bên một chút: góc của hình chữ nhật xoay luôn nằm xa tâm hơn cạnh của nó
+  // (sqrt(r² + (w/2)²) > r), nên nếu viên đá chạm sát mép dải thì góc của nó vẫn thò sang dải kế bên.
+  const inset = 0.03;
+  const rMid = (rIn + rOut) / 2;
+  const depth = Math.max(0.12, rOut - rIn - inset * 2);
+  const rOutB = rMid + depth / 2;   // mép ngoài của vành (đã trừ lề) — dùng để chặn phần phình của viên dài
+  // Chia vành thành các Ô GÓC bằng nhau; mỗi viên đá chiếm trọn 1 ô (thi thoảng 2 ô liền nhau) và luôn hẹp
+  // hơn ô của nó. Nhờ vậy hai viên cạnh nhau KHÔNG BAO GIỜ chồng lên nhau — bản trước xoay chéo từng viên
+  // quanh vị trí cố định nên các góc viên đâm sang ô bên cạnh, ra hình bánh răng lởm chởm.
+  // ô góc để thưa hơn (hệ số 1.15) cho viên cơ bản chunky, rồi mới chẻ nhỏ/gộp dài để tạo chênh lệch
+  const n = Math.max(10, Math.round((Math.PI * 2 * rMid) / (depth * 1.15)));
+  const slot = (Math.PI * 2) / n;
+  let i = 0;
+  while (i < n) {
+    // Chênh lệch kích cỡ mạnh: viên dài chiếm tới 3 ô, viên ngắn chỉ nửa ô — tỉ lệ dài/ngắn tới 6 lần. Dù to
+    // hay nhỏ, mỗi viên vẫn nằm gọn trong phần góc của riêng nó nên không bao giờ chồng lên viên bên cạnh.
+    const roll = Math.random();
+    const span = roll < 0.12 && i + 2 < n ? 3 : roll < mergeChance + 0.14 && i + 1 < n ? 2 : 1;
+    const pieces = span === 1 && chance(0.3) ? 2 : 1;   // chẻ đôi ô thành 2 viên nhỏ
+    for (let k = 0; k < pieces; k++) {
+      const sub = span / pieces;
+      const aMid = angleOffset + (i + sub * (k + 0.5)) * slot;
+      // Viên DÀI phải MỎNG theo phương bán kính: một phiến đá thẳng không thể ôm sát cung tròn, hai đầu của nó
+      // phình ra ngoài vành. Để mỏng và đặt lùi vào giữa dải thì chỗ phình đó vẫn nằm trong vành.
+      const d = depth * (span >= 2 ? rand(0.42, 0.62) : rand(0.72, 1));
+      // lệch vào trong/ra ngoài nhưng vẫn nằm gọn trong dải. Phải bốc ĐÚNG MỘT LẦN rồi dùng chung cho cả x lẫn
+      // z, nếu bốc riêng từng trục thì tâm viên đá rời khỏi tia góc aMid và mọi tính toán không chồng lấn bên
+      // dưới đều sai theo.
+      // Luôn chừa một khoảng hở nhỏ ở mép NGOÀI: nếu viên nằm sát rịt mép vành thì chặn bán kính bên dưới siết
+      // xuống gần 0, cho ra những viên mỏng như mảnh dằm thay vì viên đá tử tế.
+      const rr = Math.min(
+        rOutB - d / 2 - 0.025,
+        rMid + ((depth - d) / 2) * rand(-0.7, 0.7)
+      );
+      // Chặn 1 — theo GÓC: bề rộng lấy tại mép trong của viên, chỗ hẹp nhất trong phần góc của nó.
+      const angCap = 2 * (rr - d / 2) * Math.tan((slot * sub) / 2);
+      // Chặn 2 — theo BÁN KÍNH: hai góc ngoài của viên nằm xa tâm hơn cạnh ngoài của nó, không được vượt mép
+      // ngoài của vành. Thiếu chặn này thì viên càng dài càng thò sang vành/bậc kế bên.
+      const radCap = 2 * Math.sqrt(Math.max(1e-4, rOutB * rOutB - (rr + d / 2) ** 2));
+      const h = yTop * rand(0.96, 1.04);   // cao suốt từ mặt đất lên mặt bậc — mặt bên là mặt đứng của bậc
+      list.push({
+        x: Math.cos(aMid) * rr, z: Math.sin(aMid) * rr,
+        y: h / 2, w: Math.min(angCap, radCap) * rand(0.66, 0.94), h, d,
+        ry: -(aMid + Math.PI / 2),  // trục X của khối trùng phương tiếp tuyến — mỗi viên quay một hướng quanh vòng
+      });
+    }
+    i += span;
+  }
+}
+
+// ===== Vành đá xếp theo ĐA GIÁC ĐỀU (mặc định 8 cạnh): mỗi cạnh là một HÀNG ĐÁ THẲNG, cùng một góc xoay.
+// Dáng công trình có góc cạnh dứt khoát, hợp với tế đàn cấp cao hơn là đường tròn cứ nở rộng mãi ra.
+// aIn/aOut là TRUNG ĐOẠN (khoảng cách tâm → giữa cạnh), không phải bán kính đỉnh. =====
+function polyStones(aIn, aOut, yTop, list, sides = 8, { angleOffset = 0 } = {}) {
+  const inset = 0.03;
+  const apIn = aIn + inset, apOut = aOut - inset;
+  const depth = Math.max(0.12, apOut - apIn);
+  const apMid = (apIn + apOut) / 2;
+  const half = Math.PI / sides;
+  // Hai hàng kề nhau nghiêng nhau 2*half, nếu kéo dài tới tận điểm góc thì phần gần góc của chúng cắt vào
+  // nhau. Điều kiện tách rời: hình chiếu XA NHẤT của hàng này lên pháp tuyến hàng kia không vượt quá mép
+  // trong của hàng kia — apOut*cos(2h) + L*sin(2h) <= apIn. Giải ra được chặn L bên dưới; nhân 0.96 lấy dư
+  // an toàn. Phần thiếu ở mỗi góc thành một khuyết nhỏ, đọc ra như mạch nối của khối xây.
+  const cornerLimit = (apIn - apOut * Math.cos(2 * half)) / Math.sin(2 * half);
+  const halfLen = Math.min(apIn * Math.tan(half), cornerLimit) * 0.96;
+  // Dải quá dày so với bán kính thì cornerLimit tụt xuống 0 (thậm chí âm) — không có cách nào xếp hàng đá
+  // thẳng mà hai hàng kề nhau không cắt nhau. Trả về vành tròn cho dải đó, mắt thường gần như không phân biệt
+  // được ở bán kính nhỏ như vậy.
+  if (halfLen < depth * 0.35) {
+    ringStones(aIn, aOut, yTop, list, { angleOffset });
+    return;
+  }
+  for (let s = 0; s < sides; s++) {
+    const a = angleOffset + (s / sides) * Math.PI * 2;
+    const nx = Math.cos(a), nz = Math.sin(a);    // pháp tuyến hướng ra ngoài của cạnh
+    const tx = -Math.sin(a), tz = Math.cos(a);   // phương dọc cạnh
+    const ry = -(a + Math.PI / 2);               // trục X của khối chạy dọc cạnh
+    const n = Math.max(2, Math.round((halfLen * 2) / (depth * 1.15)));
+    const slot = (halfLen * 2) / n;
+    let i = 0;
+    while (i < n) {
+      const roll = Math.random();
+      const span = roll < 0.14 && i + 2 < n ? 3 : roll < 0.4 && i + 1 < n ? 2 : 1;
+      const pieces = span === 1 && chance(0.28) ? 2 : 1;
+      for (let k = 0; k < pieces; k++) {
+        const sub = span / pieces;
+        const t = -halfLen + (i + sub * (k + 0.5)) * slot;
+        const d = depth * rand(0.7, 1);
+        const off = apMid + ((depth - d) / 2) * rand(-0.7, 0.7);
+        const h = yTop * rand(0.96, 1.04);
+        list.push({
+          x: nx * off + tx * t, z: nz * off + tz * t,
+          y: h / 2, w: slot * sub * rand(0.7, 0.94), h, d, ry,
+        });
+      }
+      i += span;
+    }
+    // Không chốt thêm khối ở góc: khoảng khuyết nằm ngoài dải (điểm góc của đa giác xa tâm hơn trung đoạn),
+    // nhét khối vào đó là lấn sang bậc kế bên — đúng kiểu chồng lấn cần tránh. Để trống thành mạch góc.
+  }
+}
+
+// ===== Dốc alpha dọc trụ sáng: đặc ở chân, nhạt dần rồi tắt hẳn phía trên (thay vì bị cắt cụt đột ngột) =====
+let beamFadeTex = null;
+function beamFadeTexture() {
+  if (beamFadeTex) return beamFadeTex;
+  const cv = document.createElement('canvas');
+  cv.width = 1; cv.height = 64;
+  const ctx = cv.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 64, 0, 0); // đáy ảnh → đỉnh ảnh
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.45, 'rgba(255,255,255,0.92)');
+  grad.addColorStop(0.75, 'rgba(255,255,255,0.45)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 1, 64);
+  beamFadeTex = new THREE.CanvasTexture(cv);
+  return beamFadeTex;
+}
+
+// ===== Cổng truyền tống: bệ đá BẬC THANG xếp theo vành tròn + lõi sàn phát sáng + trụ ánh sáng cao vút =====
+// Bậc thang là bậc THẬT (mỗi bậc một vành đá cao dần vào trong, có ngay từ cấp 0 như ảnh mẫu). world.js đăng
+// ký từng bậc thành mặt đứng hình tròn trong w.islands nên người chơi bước lên/xuống được và hồi sinh trên bậc
+// trên cùng — xem userData.steps/topY.
+// opts.glowRatio: tỉ lệ đá vành ngoài đổi thành khối phát sáng (mạch năng lượng của các cấp cao).
+// opts.stone: bảng màu đá theo cấp (xem shrineStoneForTier trong config.js).
+export function buildPortal(color = 0x7fd8e8, scale = 1, opts = {}) {
+  const {
+    glowRatio = 0,
+    stone = { main: 0x8f8b6e, alt: 0x7c7860 },
+    steps = 3, stepH = 0.24, outerR = 2.75,
+    sides = 0,   // 0 = vành tròn; >=5 = đa giác đều (tế đàn cấp cao dùng 8 cạnh cho ra dáng công trình)
+  } = opts;
+  const g = new THREE.Group();
+  const rOut = outerR * scale;
+
+  // mỗi bậc thu vào 24% bán kính ngoài cùng; bậc trong cùng khép hẳn về tâm
+  const stepDefs = [];
+  for (let i = 0; i < steps; i++) {
+    stepDefs.push({
+      rOut: rOut * (1 - i * 0.24),
+      rIn: i === steps - 1 ? 0 : rOut * (1 - (i + 1) * 0.24),
+      y: stepH * (i + 1),
+    });
+  }
+
+  const stoneA = [], stoneB = [], glowB = [];
+  for (const st of stepDefs) {
+    // Chia vành của bậc thành nhiều dải hẹp — dải rộng quá thì mỗi viên bị kéo dài thành nan quạt. Với đa giác
+    // còn phải hẹp hơn nữa: dải càng dày thì hàng đá càng phải ngắn lại để hai hàng kề nhau không cắt nhau ở
+    // góc, dày quá sẽ chỉ còn vài viên tí xíu giữa mỗi cạnh.
+    // Đa giác dùng dải MỎNG hơn hẳn: dải càng mỏng thì hàng đá được phép dài ra càng nhiều trước khi cắt vào
+    // hàng kề bên, nên khe hở ở 8 góc hẹp lại và mặt bệ liền lạc hơn.
+    const bandW = (sides >= 5 ? 0.2 : 0.5) * scale;
+    // Lõi trong cùng tách RIÊNG một lần: khu vực quanh tâm không đủ chu vi để xếp thành vành, chỉ dùng đúng
+    // MỘT viên vuông. Trước đây nhận diện lõi bằng ngưỡng bán kính trong vòng lặp dải, mà dải của đa giác hẹp
+    // nên ngưỡng đó khớp cho HAI dải liên tiếp — sinh ra 2 khối lõi chồng khít lên nhau.
+    const isCore = st.rIn === 0;
+    const coreR = isCore ? Math.max(bandW, 0.5 * scale) : 0;
+    if (isCore) {
+      // hệ số ≤1.2: góc viên xa tâm hơn cạnh 1.41 lần, phải vẫn nằm trong coreR để không chạm vành đầu tiên
+      const s = coreR * (sides >= 5 ? 1.0 : 1.2);
+      const blk = { x: 0, z: 0, y: st.y / 2, w: s, h: st.y, d: s, ry: rand(0, Math.PI / 2) };
+      (Math.hypot(blk.x, blk.z) < 0.95 * scale ? glowB : stoneA).push(blk);
+    }
+    const bandStart = isCore ? coreR : st.rIn;
+    const bands = Math.max(1, Math.round((st.rOut - bandStart) / bandW));
+    for (let b = 0; b < bands; b++) {
+      const r1 = bandStart + ((st.rOut - bandStart) * b) / bands;
+      const r2 = bandStart + ((st.rOut - bandStart) * (b + 1)) / bands;
+      const tmp = [];
+      if (sides >= 5) {
+        // đa giác: MỌI dải dùng CHUNG một góc gốc, nếu lệch nhau thì các cạnh không thẳng hàng và mất luôn
+        // dáng đa giác
+        polyStones(r1, r2, st.y, tmp, sides, { angleOffset: Math.PI / sides });
+      } else {
+        // mỗi dải một góc xuất phát riêng — mạch nối giữa các viên so le nhau như xây gạch, không xếp thẳng hàng
+        ringStones(r1, r2, st.y, tmp, { angleOffset: rand(0, Math.PI * 2) });
+      }
+      for (const blk of tmp) {
+        const rad = Math.hypot(blk.x, blk.z);
+        if (rad < 0.95 * scale) glowB.push(blk);              // lõi sàn sáng quanh chân trụ sáng
+        else if (Math.random() < glowRatio) glowB.push(blk);
+        else (Math.random() < 0.35 ? stoneB : stoneA).push(blk);
+      }
+    }
+  }
+  addBlockCluster(g, stoneA, stone.main);
+  addBlockCluster(g, stoneB, stone.alt);
+  // lõi sàn = phần nhấp nháy theo nhịp (userData.disc, xem game.js)
+  const disc = addBlockCluster(g, glowB, color, { glow: true, opacity: 0.62 });
+
+  // ---- trụ ánh sáng cao vút — điểm nhận diện chính của tế đàn trong ảnh mẫu ----
+  // Vỏ ngoài pha trộn THƯỜNG để NHUỘM màu nền trời (giữ được sắc vàng/xanh), lõi mới dùng blending CỘNG cho
+  // tâm trụ sáng trắng nóng. Nếu cả hai đều cộng thì mọi kênh màu chạm trần trên nền trời sáng, trụ ra trắng
+  // bệch mất hẳn màu theo cấp. Ống 4 cạnh HỞ HAI ĐẦU: giữ tiết diện vuông kiểu voxel nhưng không có mặt nắp
+  // (mặt nắp sẽ hiện thành một tấm vuông lơ lửng ở chỗ trụ đáng lẽ đã tan hết).
+  const topY = stepH * steps;
+  const beamH = 8.5;
+  const tube = (halfW) => new THREE.CylinderGeometry(halfW * Math.SQRT2, halfW * Math.SQRT2, beamH, 4, 1, true);
+  const fade = beamFadeTexture();
+  const beam = new THREE.Mesh(tube(0.39 * scale), new THREE.MeshBasicMaterial({
+    color, map: fade, transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide,
+  }));
+  const beamCore = new THREE.Mesh(tube(0.15 * scale), new THREE.MeshBasicMaterial({
+    color, map: fade, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+  }));
+  beam.rotation.y = Math.PI / 4;   // xoay để mặt ống thẳng theo trục thay vì cạnh chĩa ra
+  beamCore.rotation.y = Math.PI / 4;
+  beam.position.y = topY + beamH / 2;
+  beamCore.position.y = beam.position.y;
+  const light = new THREE.PointLight(color, 6 * scale, 8 * scale);
+  light.position.y = topY + 1;
+  g.add(beam, beamCore, light);
+
+  g.userData.disc = disc;
+  g.userData.pillar = beam;
+  // world.js dùng để đăng ký mặt đứng đi lên được + đặt cột trụ/rương lên đúng mặt bậc.
+  // Với đa giác, s.rOut là TRUNG ĐOẠN nên mặt đứng (hình tròn) lấy nhích ra 4% — nằm giữa trung đoạn và đỉnh,
+  // để người chơi không hụt chân ở 8 góc mà cũng không đứng hẫng quá xa ngoài mép cạnh.
+  const stepR = sides >= 5 ? 1.04 : 1;
+  g.userData.steps = stepDefs.map((s) => ({ r: s.rOut * stepR, y: s.y }));
+  g.userData.topY = topY;
+  return g;
+}
+
+// ===== Vành đá trang trí lan thêm ra ngoài chân bệ — hoàn toàn trang trí, không va chạm (giống hoa/cỏ),
+// xếp cùng kiểu vòng tròn xoay theo tiếp tuyến với bệ chính =====
+// keep(x, z): world.js truyền vào để LOẠI BỎ viên nào không nằm trên nền phẳng — vành đá lan ra ngoài mép đảo
+// hoặc cắm vào sườn dốc sẽ bị bỏ hẳn thay vì lơ lửng giữa không khí.
+export function buildDaisRing(radius, color = 0xcfc2a2, keep = null, sides = 0) {
+  const g = new THREE.Group();
+  const blocks = [];
+  if (sides >= 5) polyStones(radius - 0.42, radius, 0.12, blocks, sides, { angleOffset: Math.PI / sides });
+  else ringStones(radius - 0.42, radius, 0.12, blocks, { angleOffset: rand(0, Math.PI * 2) });
+  addBlockCluster(g, keep ? blocks.filter((b) => keep(b.x, b.z)) : blocks, color);
+  g.userData.daisRing = true;   // nhãn để soi/kiểm tra riêng cụm vành đá trang trí
+  return g;
+}
+
+// ===== Đá khắc rune nhỏ bay quanh tế đàn (từ cấp 6 — xem buildPortalStructures: lắc nhẹ ở cấp 6-7, xoay
+// vòng quanh trụ sáng chính từ cấp 8). Có mặt phát sáng cả trước lẫn sau nên đọc được từ mọi góc trong lúc
+// chuyển động (animate ở game.js — w.jitters/w.orbiters). scale: đá to/nhỏ khác nhau giữa các vòng =====
+export function buildOrbitRune(color = 0x7fd8e8, scale = 1, stoneColor = null) {
+  const g = new THREE.Group();
+  const s = rand(0.34, 0.46) * scale;   // cạnh viên đá
+
+  // Ánh sáng là MỘT LỚP GỌN nằm trong khối đá — mạch sáng ngang giữa thân, lớp sáng trên đỉnh, hoặc dải sáng
+  // dọc một bên. Bản trước dựng vỏ 3x3x3 rồi để lõi rỉ qua các khe ngẫu nhiên nên chỉ ra lốm đốm, không đọc
+  // được là một mạch sáng trong đá.
+  const stoneParts = [];
+  let lit;
+  const variant = pick(['seam', 'cap', 'side']);
+  if (variant === 'seam') {
+    const litH = s * rand(0.2, 0.3);
+    const lowH = (s - litH) * rand(0.4, 0.6);
+    const topH = s - litH - lowH;
+    stoneParts.push({ x: 0, y: -s / 2 + lowH / 2, z: 0, w: s, h: lowH, d: s });
+    stoneParts.push({ x: 0, y: s / 2 - topH / 2, z: 0, w: s, h: topH, d: s });
+    lit = { w: s * 0.96, h: litH, d: s * 0.96, x: 0, y: -s / 2 + lowH + litH / 2, z: 0 };
+  } else if (variant === 'cap') {
+    const litH = s * rand(0.22, 0.32);
+    stoneParts.push({ x: 0, y: -litH / 2, z: 0, w: s, h: s - litH, d: s });
+    lit = { w: s * 0.94, h: litH, d: s * 0.94, x: 0, y: (s - litH) / 2, z: 0 };
+  } else {
+    const litW = s * rand(0.2, 0.3);
+    stoneParts.push({ x: litW / 2, y: 0, z: 0, w: s - litW, h: s, d: s });
+    lit = { w: litW, h: s * 0.94, d: s * 0.94, x: -(s - litW) / 2, y: 0, z: 0 };
+  }
+  // vài mảnh đá nhỏ bám ngoài để bóng viên đá không phải hộp vuông chằn chặn
+  for (let i = 0; i < randInt(1, 3); i++) {
+    const cs = s * rand(0.22, 0.34);
+    const face = randInt(0, 3);
+    const off = (s + cs) / 2 - cs * 0.35;
+    stoneParts.push({
+      x: face === 0 ? off : face === 1 ? -off : rand(-s * 0.3, s * 0.3),
+      y: rand(-s * 0.3, s * 0.3),
+      z: face === 2 ? off : face === 3 ? -off : rand(-s * 0.3, s * 0.3),
+      w: cs, h: cs, d: cs, ry: rand(-0.3, 0.3),
+    });
+  }
+  // gộp phần đá vào 1 InstancedMesh — mỗi viên đá bay chỉ tốn 2 draw call
+  addBlockCluster(g, stoneParts, stoneColor ?? pick([0x9a8f80, 0x8b8172, 0xa79b8b]));
+  const litMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(lit.w, lit.h, lit.d),
     new THREE.MeshBasicMaterial({ color })
   );
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.2;
-  const pillar = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.85 * scale, 1.0 * scale, 0.9, 24, 1, true),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false })
-  );
-  pillar.position.y = 0.62;
-  const pillarCore = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.4 * scale, 0.5 * scale, 0.85, 16, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false })
-  );
-  pillarCore.position.y = 0.6;
-  const light = new THREE.PointLight(color, 6 * scale, 8 * scale);
-  light.position.y = 1.1;
-  g.add(disc, ring, pillar, pillarCore, light);
-  g.userData.disc = disc;
-  g.userData.pillar = pillar;
+  litMesh.position.set(lit.x, lit.y, lit.z);
+  g.add(litMesh);
+
+  g.rotation.x = rand(-0.35, 0.35);
+  g.rotation.z = rand(-0.35, 0.35);
   return g;
 }
 
