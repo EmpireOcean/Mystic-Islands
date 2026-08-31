@@ -4,3 +4,6 @@
 *.bat
 *.zip
 .claude/
+
+# Standalone prototype/test pages used while building a feature — not part of the shipped game
+altar_octagon_3tier.html
