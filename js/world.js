@@ -702,6 +702,18 @@ function chainDistMaxFor(level) {
   return c.distMax + (c.distMaxFar - c.distMax) * t;
 }
 
+// Tầm nhảy ngang XA NHẤT vật lý thật khi vật thể kế tiếp cao hơn dy so với điểm bật nhảy — thời gian bay tới
+// lúc rơi xuống đúng độ cao dy giảm dần khi dy tăng, nên tầm xa cũng giảm theo (khác hẳn nhảy ngang bằng).
+// distMax/distMaxFar trong config chỉ đúng ở dy thấp — không hạ trần theo dy thì node vừa xa vừa cao dễ sinh
+// ra khoảng cách vượt quá sức nhảy thật, xem CFG.chain.
+function maxJumpDistForDy(dy) {
+  const { jumpV: vy, gravity: g, speed } = CFG.player;
+  const disc = vy * vy - 2 * g * dy;
+  if (disc <= 0) return 0; // dy vượt quá đỉnh nhảy — không thể tới
+  const t = (vy + Math.sqrt(disc)) / g; // thời điểm rơi xuống đúng cao độ dy (nghiệm sau, toàn bộ thời gian bay)
+  return speed * t;
+}
+
 // ---------- Chuỗi vật thể lơ lửng — bắt đầu ngay cạnh cổng ----------
 function buildChain(w, level) {
   const count = chainCountFor(level);
@@ -761,8 +773,11 @@ function buildChain(w, level) {
         // chuyển sang quét đều 16 hướng quanh cả 360° — vét gần hết mọi hướng khả dĩ (kể cả khe hở hẹp) trước
         // khi đành chấp nhận lần thử cuối.
         nextHeading = attempt < 8 ? heading + rand(-1.3, 1.3) : (attempt - 8) / 16 * Math.PI * 2;
-        const dist = rand(CFG.chain.distMin, distMax);
         nextDy = rand(0.55, 1.15);
+        // hạ trần dist theo tầm nhảy vật lý thật ứng với nextDy (nhân 0.9 chừa biên an toàn cho sai số điểm
+        // đặt chân) — leo càng cao thì trần càng thấp, tránh sinh khoảng cách vượt sức nhảy (xem maxJumpDistForDy)
+        const distCap = Math.min(distMax, maxJumpDistForDy(nextDy) * 0.9);
+        const dist = rand(CFG.chain.distMin, Math.max(CFG.chain.distMin, distCap));
         nextCx = cx + Math.cos(nextHeading) * dist;
         nextCz = cz + Math.sin(nextHeading) * dist;
         // 1.7: ước lượng an toàn cho kích thước vật thể LỚN NHẤT có thể được chọn ngẫu nhiên ở node này (hộp
